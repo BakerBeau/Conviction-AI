@@ -1,5 +1,6 @@
 import math
 import os
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from io import StringIO
@@ -26,22 +27,25 @@ FALLBACK_UNIVERSE = [
 st.set_page_config(page_title="Conviction AI", page_icon="📈", layout="wide")
 
 st.title("📈 Conviction AI")
-st.caption("Type a ticker. Conviction AI pulls available market/fundamental data and converts it into a transparent 0–100 research score.")
+st.markdown("### Stock research made simple.")
+st.caption("An easy way for beginner investors to get the important information about a stock in one place — growth, valuation, profitability, Wall Street sentiment, institutional activity, momentum, and chart health.")
+st.markdown("**10 factors. One simple Conviction Score.**")
 st.info(
     "Research tool only — not investment advice. Live data is sourced from Yahoo Finance through yfinance and may be delayed, incomplete, or unavailable. "
     "Always verify material figures before making an investment decision."
 )
 
 WEIGHTS = {
-    "EPS Growth": 0.18,
-    "Revenue Growth": 0.12,
-    "Net Margin": 0.12,
-    "ROIC / Capital Efficiency": 0.12,
+    "EPS Growth": 0.16,
+    "Revenue Growth": 0.11,
+    "Net Margin": 0.11,
+    "ROIC / Capital Efficiency": 0.11,
     "Forward P/E": 0.10,
-    "Analyst Upside": 0.12,
-    "Institutional Ownership": 0.08,
-    "Insider Activity": 0.06,
-    "12M Momentum": 0.10,
+    "Analyst Upside": 0.11,
+    "Institutional Ownership": 0.07,
+    "Insider Activity": 0.05,
+    "12M Momentum": 0.08,
+    "Chart Health": 0.10,
 }
 
 
@@ -127,6 +131,40 @@ def momentum_12m(history):
     return (float(closes.iloc[-1]) / float(closes.iloc[0]) - 1) * 100
 
 
+
+def chart_health(history):
+    """0-100 technical health score using trend, moving averages, and proximity to the 52-week high."""
+    if history is None or history.empty or "Close" not in history:
+        return None
+    closes = history["Close"].dropna()
+    if len(closes) < 200:
+        return None
+
+    price = float(closes.iloc[-1])
+    sma50 = float(closes.tail(50).mean())
+    sma200 = float(closes.tail(200).mean())
+    high52 = float(closes.max())
+
+    score = 0.0
+    if price > sma50:
+        score += 25.0
+    if price > sma200:
+        score += 25.0
+    if sma50 > sma200:
+        score += 20.0
+
+    # 3-month trend contributes up to 15 points.
+    if len(closes) >= 63:
+        mom3 = (price / float(closes.iloc[-63]) - 1) * 100
+        score += normalize(mom3, -10, 15) * 0.15
+
+    # Staying close to the 52-week high contributes up to 15 points.
+    if high52 > 0:
+        drawdown = (price / high52 - 1) * 100
+        score += normalize(drawdown, -30, 0) * 0.15
+
+    return round(max(0.0, min(100.0, score)), 1)
+
 def analyst_upside(info):
     current = clean_num(info.get("currentPrice") or info.get("regularMarketPrice"))
     target = clean_num(info.get("targetMeanPrice"))
@@ -136,14 +174,22 @@ def analyst_upside(info):
 
 
 @st.cache_data(ttl=900, show_spinner=False)
-def fetch_stock(symbol):
+def fetch_stock(symbol, cache_bust=None):
     t = yf.Ticker(symbol)
     errors = []
 
-    try:
-        info = t.info or {}
-    except Exception as e:
-        info, errors = {}, [f"Company data: {e}"]
+    info = {}
+    last_info_error = None
+    for attempt in range(3):
+        try:
+            info = t.get_info() or {}
+            if info:
+                break
+        except Exception as e:
+            last_info_error = e
+        time.sleep(0.6 * (attempt + 1))
+    if not info and last_info_error is not None:
+        errors.append(f"Company data: {last_info_error}")
 
     try:
         hist = t.history(period="1y", auto_adjust=True)
@@ -175,6 +221,7 @@ def fetch_stock(symbol):
         "institutional_ownership": pct(info.get("heldPercentInstitutions")),
         "insider_activity": insider_score(insiders),
         "momentum": momentum_12m(hist),
+        "chart_health": chart_health(hist),
     }
 
     return {
@@ -204,6 +251,7 @@ def score_stock(m):
         "Institutional Ownership": normalize(m.get("institutional_ownership"), 20, 90),
         "Insider Activity": normalize(m.get("insider_activity"), -5, 5),
         "12M Momentum": normalize(m.get("momentum"), -20, 40),
+        "Chart Health": clean_num(m.get("chart_health")),
     }
     available_weight = sum(WEIGHTS[k] for k, v in raw_scores.items() if v is not None)
     if available_weight == 0:
@@ -379,13 +427,36 @@ def previous_quarter_id(qid):
     return f"{year-1}-Q4" if q == 1 else f"{year}-Q{q-1}"
 
 
-def quarter_movers(snapshot_df, quarter=None):
-    quarter = quarter or current_quarter_id()
-    prior = previous_quarter_id(quarter)
-    cur = snapshot_df[snapshot_df["quarter"] == quarter].copy()
-    prev = snapshot_df[snapshot_df["quarter"] == prior].copy()
-    if cur.empty or prev.empty:
-        return pd.DataFrame(), pd.DataFrame(), prior
+def _quarter_sort_key(qid):
+    try:
+        year, q = str(qid).split("-Q")
+        return int(year), int(q)
+    except Exception:
+        return (0, 0)
+
+
+def quarter_start_label(qid):
+    try:
+        year, q = str(qid).split("-Q")
+        month = {"1": "Jan 1", "2": "Apr 1", "3": "Jul 1", "4": "Oct 1"}[q]
+        return f"{month}, {year}"
+    except Exception:
+        return str(qid)
+
+
+def quarter_movers(snapshot_df):
+    if snapshot_df is None or snapshot_df.empty:
+        return pd.DataFrame(), pd.DataFrame(), None, None
+    work = snapshot_df.copy()
+    work["coverage"] = pd.to_numeric(work["coverage"], errors="coerce")
+    work = work[work["coverage"] >= 7]
+    quarters = sorted(work["quarter"].dropna().astype(str).unique(), key=_quarter_sort_key)
+    if len(quarters) < 2:
+        latest = quarters[-1] if quarters else None
+        return pd.DataFrame(), pd.DataFrame(), None, latest
+    prior, latest = quarters[-2], quarters[-1]
+    cur = work[work["quarter"] == latest].copy()
+    prev = work[work["quarter"] == prior].copy()
     cur["score"] = pd.to_numeric(cur["score"], errors="coerce")
     prev["score"] = pd.to_numeric(prev["score"], errors="coerce")
     merged = cur.merge(prev[["ticker", "score"]], on="ticker", suffixes=("_current", "_prior"))
@@ -393,7 +464,7 @@ def quarter_movers(snapshot_df, quarter=None):
     merged = merged.dropna(subset=["change"])
     winners = merged.sort_values("change", ascending=False).head(10)
     losers = merged.sort_values("change", ascending=True).head(10)
-    return winners, losers, prior
+    return winners, losers, prior, latest
 
 
 def scan_universe(tickers, workers=8, progress_callback=None):
@@ -404,7 +475,7 @@ def scan_universe(tickers, workers=8, progress_callback=None):
         result = fetch_stock(ticker)
         score, _, _ = score_stock(result["metrics"])
         coverage = sum(v is not None for v in result["metrics"].values())
-        if score is None:
+        if score is None or coverage < 7:
             return None
         return {
             "ticker": ticker,
@@ -480,71 +551,71 @@ with st.expander("Leaderboard universe", expanded=True):
     u3.metric("Nasdaq-100 members loaded", f"{len(fetch_index_universe('Nasdaq-100')):,}")
     st.caption("The combined universe is deduplicated by ticker. Class-share tickers are normalized for Yahoo Finance (for example, BRK.B → BRK-B).")
 
-q_now = current_quarter_id()
-scan_col, snap_col = st.columns([1, 1])
-with scan_col:
-    scan = st.button("Refresh Top 10", use_container_width=True)
-with snap_col:
-    save_snapshot = st.button(f"Save {q_now} Snapshot", use_container_width=True)
+st.caption("Only stocks with **7/10 or better data coverage** are eligible for any leaderboard.")
+
+scan = st.button("Refresh Current Top 10", use_container_width=True)
 
 if "leaderboard_df" not in st.session_state:
     st.session_state.leaderboard_df = pd.DataFrame()
 
-if scan or save_snapshot:
+if scan:
     progress = st.progress(0.0, text=f"Scoring 0 / {len(leaderboard_universe)} tickers…")
 
     def update_progress(done, total):
         progress.progress(done / max(total, 1), text=f"Scoring {done:,} / {total:,} tickers…")
 
     st.session_state.leaderboard_df = scan_universe(
-        leaderboard_universe, workers=8, progress_callback=update_progress
+        leaderboard_universe, workers=4, progress_callback=update_progress
     )
     progress.empty()
 
-if save_snapshot:
-    if st.session_state.leaderboard_df.empty:
-        st.warning("No scores were available to save.")
-    else:
-        saved = save_quarter_snapshot(st.session_state.leaderboard_df.to_dict("records"), q_now)
-        st.success(f"Saved {saved} ticker scores for {q_now}.")
-
 leaderboard_df = st.session_state.leaderboard_df
 snapshots = load_snapshots()
-winners, losers, prior_q = quarter_movers(snapshots, q_now)
+winners, losers, prior_q, latest_q = quarter_movers(snapshots)
 
-tab_top, tab_up, tab_down = st.tabs(["🏆 Current Top 10", "🚀 Top 10 Movers", "📉 Top 10 Losers"])
+tab_top, tab_up, tab_down = st.tabs(["🏆 Current Top 10", "🚀 Quarterly Risers", "📉 Quarterly Fallers"])
 with tab_top:
     if leaderboard_df.empty:
-        st.info("Click **Refresh Top 10** to score the current universe.")
+        st.info("Click **Refresh Current Top 10**. Stocks with fewer than 7/10 factors are automatically excluded.")
     else:
         top10 = leaderboard_df.head(10).copy()
         top10.insert(0, "Rank", range(1, len(top10) + 1))
         top10["Score"] = top10["score"].map(lambda x: f"{x:.1f}")
-        top10["Coverage"] = top10["coverage"].map(lambda x: f"{int(x)}/9")
+        top10["Coverage"] = top10["coverage"].map(lambda x: f"{int(x)}/10")
         st.dataframe(top10[["Rank", "ticker", "company", "Score", "Coverage"]], use_container_width=True, hide_index=True)
         st.bar_chart(top10.set_index("ticker")[["score"]])
 
 with tab_up:
+    st.caption("Quarterly rankings update only on **Jan 1, Apr 1, Jul 1, and Oct 1**.")
     if winners.empty:
-        st.info(f"QoQ movers need saved snapshots for both **{prior_q}** and **{q_now}**. Save one snapshot each quarter and this list will populate automatically.")
+        if latest_q:
+            st.info(f"One quarterly snapshot exists ({quarter_start_label(latest_q)}). Movers will appear after the next quarter-start snapshot.")
+        else:
+            st.info("No quarterly snapshots yet. The scheduled GitHub job will create them on Jan 1, Apr 1, Jul 1, and Oct 1.")
     else:
+        st.caption(f"Comparing **{quarter_start_label(prior_q)} → {quarter_start_label(latest_q)}**")
         show = winners.copy()
         show.insert(0, "Rank", range(1, len(show) + 1))
         show["Current"] = show["score_current"].map(lambda x: f"{x:.1f}")
         show["Prior"] = show["score_prior"].map(lambda x: f"{x:.1f}")
-        show["QoQ Change"] = show["change"].map(lambda x: f"+{x:.1f}" if x >= 0 else f"{x:.1f}")
-        st.dataframe(show[["Rank", "ticker", "company", "Current", "Prior", "QoQ Change"]], use_container_width=True, hide_index=True)
+        show["Change"] = show["change"].map(lambda x: f"+{x:.1f}" if x >= 0 else f"{x:.1f}")
+        st.dataframe(show[["Rank", "ticker", "company", "Current", "Prior", "Change"]], use_container_width=True, hide_index=True)
 
 with tab_down:
+    st.caption("Quarterly rankings update only on **Jan 1, Apr 1, Jul 1, and Oct 1**.")
     if losers.empty:
-        st.info(f"QoQ losers need saved snapshots for both **{prior_q}** and **{q_now}**. Save one snapshot each quarter and this list will populate automatically.")
+        if latest_q:
+            st.info(f"One quarterly snapshot exists ({quarter_start_label(latest_q)}). Fallers will appear after the next quarter-start snapshot.")
+        else:
+            st.info("No quarterly snapshots yet. The scheduled GitHub job will create them on Jan 1, Apr 1, Jul 1, and Oct 1.")
     else:
+        st.caption(f"Comparing **{quarter_start_label(prior_q)} → {quarter_start_label(latest_q)}**")
         show = losers.copy()
         show.insert(0, "Rank", range(1, len(show) + 1))
         show["Current"] = show["score_current"].map(lambda x: f"{x:.1f}")
         show["Prior"] = show["score_prior"].map(lambda x: f"{x:.1f}")
-        show["QoQ Change"] = show["change"].map(lambda x: f"{x:.1f}")
-        st.dataframe(show[["Rank", "ticker", "company", "Current", "Prior", "QoQ Change"]], use_container_width=True, hide_index=True)
+        show["Change"] = show["change"].map(lambda x: f"{x:.1f}")
+        st.dataframe(show[["Rank", "ticker", "company", "Current", "Prior", "Change"]], use_container_width=True, hide_index=True)
 
 st.divider()
 st.markdown("## Single-stock analysis")
@@ -556,10 +627,11 @@ with right:
     st.write("")
     st.write("")
     run = st.button("Analyze Live", type="primary", use_container_width=True)
+    force = st.button("Force Refresh", use_container_width=True, help="Retry Yahoo if a ticker came back with missing data.")
 
-if run and symbol:
+if (run or force) and symbol:
     with st.spinner(f"Pulling available data for {symbol}…"):
-        result = fetch_stock(symbol)
+        result = fetch_stock(symbol, cache_bust=(str(time.time()) if force else None))
 
     m = result["metrics"]
     score, contributions, raw_scores = score_stock(m)
@@ -573,7 +645,12 @@ if run and symbol:
     c1.metric("Conviction Score", "N/A" if score is None else f"{score:.1f}/100")
     c2.metric("Rating", label(score))
     c3.metric("Price", "N/A" if result["price"] is None else f"${result['price']:,.2f}")
-    c4.metric("Data Coverage", f"{available}/9")
+    c4.metric("Data Coverage", f"{available}/10")
+    if available < 7:
+        st.warning(
+            f"Only {available}/10 factors came back from the free Yahoo feed. This stock is **not eligible for leaderboard ranking**. "
+            "Click **Force Refresh** once; if it is still low, the data provider is the limitation—not the ticker."
+        )
 
     c5, c6, c7, c8 = st.columns(4)
     c5.metric("Market Cap", market_cap_fmt(result["market_cap"]))
@@ -591,12 +668,13 @@ if run and symbol:
         ("Institutional Ownership", m["institutional_ownership"], "%"),
         ("Insider Activity", m["insider_activity"], "/5"),
         ("12M Momentum", m["momentum"], "%"),
+        ("Chart Health", m["chart_health"], "/100"),
     ]
 
     table = pd.DataFrame([
         {
             "Factor": name,
-            "Live Value": "N/A" if value is None else (f"{value:.1f}{unit}" if unit != "x" else f"{value:.1f}x"),
+            "Live Value": "N/A" if value is None else (f"{value:.1f}x" if unit == "x" else f"{value:.1f}{unit}"),
             "Factor Score": "N/A" if raw_scores.get(name) is None else f"{raw_scores[name]:.0f}/100",
             "Weight": f"{WEIGHTS[name]:.0%}",
         }
@@ -620,6 +698,7 @@ if run and symbol:
     if m["analyst_upside"] is not None and m["analyst_upside"] >= 15: strengths.append("Positive analyst implied upside")
     if m["institutional_ownership"] is not None and m["institutional_ownership"] >= 65: strengths.append("High institutional ownership")
     if m["momentum"] is not None and m["momentum"] >= 15: strengths.append("Strong 12-month momentum")
+    if m["chart_health"] is not None and m["chart_health"] >= 75: strengths.append("Healthy price chart and trend")
 
     if m["forward_pe"] is not None and m["forward_pe"] > 40: risks.append("Elevated forward valuation")
     if m["eps_growth"] is not None and m["eps_growth"] < 5: risks.append("Weak/negative EPS growth")
@@ -627,6 +706,7 @@ if run and symbol:
     if m["analyst_upside"] is not None and m["analyst_upside"] < 0: risks.append("Mean analyst target below current price")
     if m["insider_activity"] is not None and m["insider_activity"] < -2: risks.append("Recent reported insider activity skews negative")
     if m["momentum"] is not None and m["momentum"] < -10: risks.append("Negative 12-month momentum")
+    if m["chart_health"] is not None and m["chart_health"] < 40: risks.append("Weak chart health / trend")
 
     s1, s2 = st.columns(2)
     with s1:
@@ -638,7 +718,7 @@ if run and symbol:
 
     st.markdown("### Shareable Summary")
     if score is not None:
-        summary = f"{symbol} scores {score:.1f}/100 on Conviction AI ({label(score)}) using {available}/9 available live factors."
+        summary = f"{symbol} scores {score:.1f}/100 on Conviction AI ({label(score)}) using {available}/10 available live factors."
         if strengths:
             summary += " Strengths: " + ", ".join(strengths[:3]) + "."
         if risks:
@@ -649,6 +729,7 @@ if run and symbol:
         st.write(
             "The score is a transparent weighted model, not a prediction model. ROIC is an approximation calculated from the latest statements when the needed rows are available. "
             "Institutional ownership is a current ownership percentage, not hedge-fund flow. Insider activity is a rough signal from reported transactions. Analyst upside uses the mean analyst target versus current price. "
+            "Chart Health combines the current price versus the 50-day and 200-day moving averages, the 50/200-day trend relationship, 3-month momentum, and distance from the 52-week high. "
             "Yahoo/yfinance fields can be delayed, missing, or defined differently by issuer."
         )
 
@@ -664,4 +745,4 @@ else:
     st.write("Enter **AVGO**, **GOOGL**, **META**, **AMZN**, or another U.S.-listed ticker and click **Analyze Live**.")
 
 st.divider()
-st.caption("Version 0.5 — automatic S&P 500 / Nasdaq-100 universe + parallel scoring + persistent Supabase/Postgres quarterly history + Top 10 and QoQ score movers. Next: premium market data, accounts, alerts, and Stripe.")
+st.caption("Version 0.5.2 — 10-factor Conviction Score with Chart Health + 7/10 minimum leaderboard coverage + quarter-start movers/fallers snapshots (Jan 1 / Apr 1 / Jul 1 / Oct 1).")

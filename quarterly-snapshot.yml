@@ -1,0 +1,37 @@
+name: Quarterly Conviction Snapshot
+
+on:
+  schedule:
+    # Runs on Jan 1, Apr 1, Jul 1, and Oct 1 at 13:00 UTC.
+    - cron: '0 13 1 1,4,7,10 *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Build quarterly snapshot
+        run: python quarterly_snapshot.py
+
+      - name: Commit updated snapshot
+        run: |
+          git config user.name "conviction-ai-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add quarterly_scores.csv
+          git diff --cached --quiet && exit 0
+          git commit -m "Quarterly Conviction snapshot"
+          git push

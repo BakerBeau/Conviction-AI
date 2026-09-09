@@ -1,6 +1,5 @@
 streamlit>=1.38
 yfinance>=0.2.54
 pandas>=2.2
-supabase>=2.10
 requests>=2.32
 lxml>=5.3
