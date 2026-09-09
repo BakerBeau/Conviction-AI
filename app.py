@@ -26,14 +26,29 @@ FALLBACK_UNIVERSE = [
 
 st.set_page_config(page_title="Conviction AI", page_icon="📈", layout="wide")
 
+# Mobile-first polish: tighter spacing and a calmer first screen.
+st.markdown(
+    """
+    <style>
+    .block-container {padding-top: 2.25rem; padding-bottom: 2.5rem;}
+    h1 {margin-bottom: .35rem !important;}
+    h3 {margin-top: .25rem !important; margin-bottom: .35rem !important;}
+    div[data-testid="stAlert"] {border-radius: 12px;}
+    @media (max-width: 640px) {
+        .block-container {padding-top: 1.25rem; padding-left: 1rem; padding-right: 1rem;}
+        h1 {font-size: 2.35rem !important; line-height: 1.05 !important;}
+        h3 {font-size: 1.45rem !important;}
+        .stButton > button {min-height: 3rem;}
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.title("📈 Conviction AI")
 st.markdown("### Stock research made simple.")
-st.caption("An easy way for beginner investors to get the important information about a stock in one place — growth, valuation, profitability, Wall Street sentiment, institutional activity, momentum, and chart health.")
+st.caption("Quickly see growth, valuation, profitability, analyst sentiment, momentum, and chart health in one place.")
 st.markdown("**10 factors. One simple Conviction Score.**")
-st.info(
-    "Research tool only — not investment advice. Live data is sourced from Yahoo Finance through yfinance and may be delayed, incomplete, or unavailable. "
-    "Always verify material figures before making an investment decision."
-)
 
 WEIGHTS = {
     "EPS Growth": 0.16,
@@ -851,21 +866,21 @@ with main_stocks:
 
     with stock_search_tab:
         st.markdown("### Search any stock")
-        st.caption("Get the important information in one place without digging through ten different websites.")
-        left, right = st.columns([3, 1])
-        with left:
-            symbol = st.text_input("Ticker", value="AVGO", placeholder="AVGO, GOOGL, META…", key="stock_search_ticker").upper().strip()
-        with right:
-            st.write("")
-            run = st.button("Analyze", type="primary", use_container_width=True, key="stock_analyze")
-            force = st.button("Force Refresh", use_container_width=True, key="stock_force", help="Retry the free data feed if fields came back missing.")
+        st.caption("Enter a ticker and get the key numbers without bouncing between multiple sites.")
+        symbol = st.text_input("Ticker", value="AVGO", placeholder="AVGO, GOOGL, META…", key="stock_search_ticker").upper().strip()
+        run = st.button("Analyze", type="primary", use_container_width=True, key="stock_analyze")
+
+        force = False
+        with st.expander("Having trouble loading a ticker?"):
+            st.caption("Use this only if the first result is missing several data points.")
+            force = st.button("Retry live data", use_container_width=True, key="stock_force")
 
         if (run or force) and symbol:
             render_stock_result(symbol, force=force)
         elif run:
             st.warning("Enter a ticker first.")
         else:
-            st.info("Try **AVGO**, **GOOGL**, **META**, **SPGI**, **VST**, or another U.S.-listed ticker.")
+            st.caption("Examples: AVGO · GOOGL · META · SPGI · VST")
 
     with market_tab:
         st.markdown("### Market Leaders")
@@ -1057,8 +1072,13 @@ with main_etfs:
             st.dataframe(ranked[["Rank","ticker","name","category","ETF Score","5Y CAGR","10Y CAGR","Expense"]], use_container_width=True, hide_index=True)
 
 st.divider()
+st.caption("For research and educational purposes only. Not investment advice.")
 with st.expander("About Conviction AI"):
     st.write(
-        "Conviction AI is designed to make stock and ETF research easier for beginner investors. It summarizes public market data into simple rankings and research views. "
-        "It is a research tool, not investment advice, and free market-data feeds can be delayed or incomplete."
+        "Conviction AI is designed to make stock and ETF research easier for beginner investors by summarizing public market data into simple rankings and research views."
+    )
+with st.expander("Data & disclaimer"):
+    st.write(
+        "Live market data is sourced from Yahoo Finance through yfinance and may be delayed, incomplete, or unavailable. "
+        "Conviction AI is a research tool, not investment advice. Always verify material figures before making an investment decision."
     )
