@@ -510,6 +510,7 @@ def scan_universe(tickers, workers=8, progress_callback=None):
             "score": round(score, 2),
             "coverage": coverage,
             "analyst_upside": result["metrics"].get("analyst_upside"),
+            "one_year_return": result["metrics"].get("momentum"),
             "analyst_count": result.get("analyst_count"),
             "target_mean": result.get("target_mean"),
             "price": result.get("price"),
@@ -556,30 +557,61 @@ def market_cap_fmt(v):
 
 
 ETF_UNIVERSE = [
-    ("VOO", "S&P 500", "Broad Market", False), ("IVV", "S&P 500", "Broad Market", False),
-    ("SPY", "S&P 500", "Broad Market", False), ("VTI", "Total U.S. Market", "Broad Market", False),
-    ("QQQM", "Nasdaq-100", "Growth", False), ("QQQ", "Nasdaq-100", "Growth", False),
-    ("VOOG", "S&P 500 Growth", "Growth", False), ("SCHG", "Large-Cap Growth", "Growth", False),
-    ("VUG", "Large-Cap Growth", "Growth", False), ("IWF", "Russell 1000 Growth", "Growth", False),
-    ("VGT", "Information Technology", "Technology", False), ("XLK", "Technology Select Sector", "Technology", False),
-    ("FTEC", "Fidelity MSCI Information Technology", "Technology", False),
-    ("SMH", "Semiconductors", "Semiconductors", False), ("SOXX", "Semiconductors", "Semiconductors", False),
-    ("XSD", "Semiconductors", "Semiconductors", False),
-    ("SPMO", "S&P 500 Momentum", "Momentum", False), ("MTUM", "U.S. Momentum", "Momentum", False),
-    ("MOAT", "Wide Moat", "Quality", False), ("QUAL", "U.S. Quality", "Quality", False),
-    ("VTV", "Large-Cap Value", "Value", False), ("SCHV", "Large-Cap Value", "Value", False),
-    ("SCHD", "U.S. Dividend Equity", "Dividend", False), ("VIG", "Dividend Appreciation", "Dividend", False),
-    ("DGRO", "Dividend Growth", "Dividend", False),
-    ("IJH", "S&P MidCap 400", "Mid Cap", False), ("VO", "U.S. Mid Cap", "Mid Cap", False),
-    ("IJR", "S&P SmallCap 600", "Small Cap", False), ("VB", "U.S. Small Cap", "Small Cap", False),
-    ("VXUS", "Total International", "International", False), ("VEA", "Developed Markets", "International", False),
-    ("VWO", "Emerging Markets", "International", False),
-    ("XLE", "Energy Select Sector", "Sector", False), ("XLF", "Financial Select Sector", "Sector", False),
-    ("XLV", "Health Care Select Sector", "Sector", False), ("XLI", "Industrial Select Sector", "Sector", False),
-    ("IBIT", "Spot Bitcoin", "Alternative", False),
-    ("TQQQ", "3x Nasdaq-100", "Leveraged", True), ("SOXL", "3x Semiconductors", "Leveraged", True),
-    ("UPRO", "3x S&P 500", "Leveraged", True), ("SPXL", "3x S&P 500", "Leveraged", True),
+    # Broad market / core
+    ("VOO", "Vanguard S&P 500", "Broad Market", False), ("IVV", "iShares Core S&P 500", "Broad Market", False),
+    ("SPY", "SPDR S&P 500", "Broad Market", False), ("SPLG", "SPDR Portfolio S&P 500", "Broad Market", False),
+    ("VTI", "Vanguard Total Stock Market", "Broad Market", False), ("ITOT", "iShares Core S&P Total U.S.", "Broad Market", False),
+    ("SCHB", "Schwab U.S. Broad Market", "Broad Market", False), ("RSP", "Invesco S&P 500 Equal Weight", "Broad Market", False),
+    # Growth
+    ("VOOG", "Vanguard S&P 500 Growth", "Growth", False), ("SCHG", "Schwab U.S. Large-Cap Growth", "Growth", False),
+    ("VUG", "Vanguard Growth", "Growth", False), ("IWF", "iShares Russell 1000 Growth", "Growth", False),
+    ("SPYG", "SPDR Portfolio S&P 500 Growth", "Growth", False), ("MGK", "Vanguard Mega Cap Growth", "Growth", False),
+    ("QQQM", "Invesco Nasdaq-100", "Growth", False), ("QQQ", "Invesco QQQ", "Growth", False),
+    # Technology / semis
+    ("VGT", "Vanguard Information Technology", "Technology", False), ("XLK", "Technology Select Sector SPDR", "Technology", False),
+    ("FTEC", "Fidelity MSCI Information Technology", "Technology", False), ("IYW", "iShares U.S. Technology", "Technology", False),
+    ("IGV", "iShares Expanded Tech-Software", "Technology", False), ("CIBR", "First Trust Nasdaq Cybersecurity", "Technology", False),
+    ("SMH", "VanEck Semiconductor", "Semiconductors", False), ("SOXX", "iShares Semiconductor", "Semiconductors", False),
+    ("XSD", "SPDR S&P Semiconductor", "Semiconductors", False), ("PSI", "Invesco Semiconductors", "Semiconductors", False),
+    # Momentum / quality / moat
+    ("SPMO", "Invesco S&P 500 Momentum", "Momentum", False), ("MTUM", "iShares MSCI USA Momentum", "Momentum", False),
+    ("PDP", "Invesco Dorsey Wright Momentum", "Momentum", False),
+    ("MOAT", "VanEck Morningstar Wide Moat", "Quality", False), ("QUAL", "iShares MSCI USA Quality", "Quality", False),
+    ("SPHQ", "Invesco S&P 500 Quality", "Quality", False), ("JQUA", "JPMorgan U.S. Quality Factor", "Quality", False),
+    # Value / dividend
+    ("VTV", "Vanguard Value", "Value", False), ("SCHV", "Schwab U.S. Large-Cap Value", "Value", False),
+    ("IWD", "iShares Russell 1000 Value", "Value", False), ("SPYV", "SPDR Portfolio S&P 500 Value", "Value", False),
+    ("SCHD", "Schwab U.S. Dividend Equity", "Dividend", False), ("VIG", "Vanguard Dividend Appreciation", "Dividend", False),
+    ("DGRO", "iShares Core Dividend Growth", "Dividend", False), ("VYM", "Vanguard High Dividend Yield", "Dividend", False),
+    ("DGRW", "WisdomTree U.S. Quality Dividend Growth", "Dividend", False),
+    # Size
+    ("IJH", "iShares Core S&P Mid-Cap", "Mid Cap", False), ("VO", "Vanguard Mid-Cap", "Mid Cap", False),
+    ("MDY", "SPDR S&P MidCap 400", "Mid Cap", False), ("XMMO", "Invesco S&P MidCap Momentum", "Mid Cap", False),
+    ("IJR", "iShares Core S&P Small-Cap", "Small Cap", False), ("VB", "Vanguard Small-Cap", "Small Cap", False),
+    ("IWM", "iShares Russell 2000", "Small Cap", False), ("AVUV", "Avantis U.S. Small Cap Value", "Small Cap", False),
+    # International
+    ("VXUS", "Vanguard Total International Stock", "International", False), ("VEA", "Vanguard FTSE Developed Markets", "International", False),
+    ("VWO", "Vanguard FTSE Emerging Markets", "International", False), ("IEFA", "iShares Core MSCI EAFE", "International", False),
+    ("IEMG", "iShares Core MSCI Emerging Markets", "International", False), ("SCHF", "Schwab International Equity", "International", False),
+    # Sectors
+    ("XLE", "Energy Select Sector SPDR", "Sector", False), ("XLF", "Financial Select Sector SPDR", "Sector", False),
+    ("XLV", "Health Care Select Sector SPDR", "Sector", False), ("XLI", "Industrial Select Sector SPDR", "Sector", False),
+    ("XLY", "Consumer Discretionary Select Sector SPDR", "Sector", False), ("XLP", "Consumer Staples Select Sector SPDR", "Sector", False),
+    ("XLU", "Utilities Select Sector SPDR", "Sector", False), ("XLRE", "Real Estate Select Sector SPDR", "Sector", False),
+    ("XLB", "Materials Select Sector SPDR", "Sector", False), ("XLC", "Communication Services Select Sector SPDR", "Sector", False),
+    # Themes / alternatives
+    ("IBIT", "iShares Bitcoin Trust", "Alternative", False), ("ARKK", "ARK Innovation", "Thematic", False),
+    ("BOTZ", "Global X Robotics & AI", "Thematic", False), ("AIQ", "Global X Artificial Intelligence & Technology", "Thematic", False),
+    ("URA", "Global X Uranium", "Thematic", False), ("NLR", "VanEck Uranium and Nuclear", "Thematic", False),
+    ("QTUM", "Defiance Quantum", "Thematic", False), ("ROBO", "ROBO Global Robotics & Automation", "Thematic", False),
+    # Bonds / defensive
+    ("BND", "Vanguard Total Bond Market", "Bonds", False), ("AGG", "iShares Core U.S. Aggregate Bond", "Bonds", False),
+    ("SGOV", "iShares 0-3 Month Treasury Bond", "Bonds", False), ("TLT", "iShares 20+ Year Treasury Bond", "Bonds", False),
+    # Leveraged — hidden by default
+    ("TQQQ", "ProShares UltraPro QQQ", "Leveraged", True), ("SOXL", "Direxion Daily Semiconductor Bull 3X", "Leveraged", True),
+    ("UPRO", "ProShares UltraPro S&P500", "Leveraged", True), ("SPXL", "Direxion Daily S&P 500 Bull 3X", "Leveraged", True),
 ]
+
 
 
 def _price_on_or_after(closes, date):
@@ -705,134 +737,17 @@ def scan_etfs(rows, workers=6):
     return out
 
 
-with st.sidebar:
-    st.header("Conviction Engine")
-    st.caption(f"Quarterly storage: {storage_backend()}")
-    st.write("Weights")
-    for k, v in WEIGHTS.items():
-        st.caption(f"{k}: {v:.0%}")
-    st.divider()
-    st.caption("Missing metrics are excluded and remaining weights are re-normalized, rather than scored as zero.")
 
-st.markdown("## Market Leaderboards")
-st.caption("Rank a chosen stock universe by the same Conviction AI score, then track score changes from one saved quarter to the next.")
+# ------------------------------
+# Clean beginner-facing UI
+# ------------------------------
 
-with st.expander("Leaderboard universe", expanded=True):
-    universe_choice = st.selectbox(
-        "Automatic universe",
-        ["S&P 500 + Nasdaq-100", "S&P 500", "Nasdaq-100"],
-        index=0,
-        help="Membership is refreshed from public constituent tables and cached for 24 hours.",
-    )
-    universe_df = build_market_universe(universe_choice)
-    leaderboard_universe = universe_df["ticker"].tolist()
-    u1, u2, u3 = st.columns(3)
-    u1.metric("Universe size", f"{len(leaderboard_universe):,}")
-    u2.metric("S&P 500 members loaded", f"{len(fetch_index_universe('S&P 500')):,}")
-    u3.metric("Nasdaq-100 members loaded", f"{len(fetch_index_universe('Nasdaq-100')):,}")
-    st.caption("The combined universe is deduplicated by ticker. Class-share tickers are normalized for Yahoo Finance (for example, BRK.B → BRK-B).")
+st.caption("Start with a ticker or browse the market. Stocks need at least **7/10 factors** before they can appear in rankings.")
 
-st.caption("Only stocks with **7/10 or better data coverage** are eligible for any leaderboard.")
-
-scan = st.button("Refresh Current Top 10", use_container_width=True)
-
-if "leaderboard_df" not in st.session_state:
-    st.session_state.leaderboard_df = pd.DataFrame()
-
-if scan:
-    progress = st.progress(0.0, text=f"Scoring 0 / {len(leaderboard_universe)} tickers…")
-
-    def update_progress(done, total):
-        progress.progress(done / max(total, 1), text=f"Scoring {done:,} / {total:,} tickers…")
-
-    st.session_state.leaderboard_df = scan_universe(
-        leaderboard_universe, workers=4, progress_callback=update_progress
-    )
-    progress.empty()
-
-leaderboard_df = st.session_state.leaderboard_df
-snapshots = load_snapshots()
-winners, losers, prior_q, latest_q = quarter_movers(snapshots)
-
-tab_top, tab_analyst, tab_up, tab_down = st.tabs(["🏆 Current Top 10", "🎯 Analyst Opportunities", "🚀 Quarterly Risers", "📉 Quarterly Fallers"])
-with tab_top:
-    if leaderboard_df.empty:
-        st.info("Click **Refresh Current Top 10**. Stocks with fewer than 7/10 factors are automatically excluded.")
-    else:
-        top10 = leaderboard_df.head(10).copy()
-        top10.insert(0, "Rank", range(1, len(top10) + 1))
-        top10["Score"] = top10["score"].map(lambda x: f"{x:.1f}")
-        top10["Coverage"] = top10["coverage"].map(lambda x: f"{int(x)}/10")
-        st.dataframe(top10[["Rank", "ticker", "company", "Score", "Coverage"]], use_container_width=True, hide_index=True)
-        st.bar_chart(top10.set_index("ticker")[["score"]])
+main_stocks, main_etfs = st.tabs(["📈 Stocks", "🧺 ETFs"])
 
 
-with tab_analyst:
-    st.caption("Stocks with the largest gap between current price and the mean analyst target. Requires **at least 8 covering analysts** so a tiny sample does not create a misleading ranking.")
-    if leaderboard_df.empty:
-        st.info("Click **Refresh Current Top 10** first. The same market scan powers this list.")
-    else:
-        opp = leaderboard_df.copy()
-        opp["analyst_count"] = pd.to_numeric(opp.get("analyst_count"), errors="coerce")
-        opp["analyst_upside"] = pd.to_numeric(opp.get("analyst_upside"), errors="coerce")
-        opp = opp[(opp["analyst_count"] >= 8) & opp["analyst_upside"].notna()].sort_values("analyst_upside", ascending=False).head(10)
-        if opp.empty:
-            st.info("No stocks in this scan had enough analyst coverage plus a usable mean target.")
-        else:
-            show = opp.copy()
-            show.insert(0, "Rank", range(1, len(show) + 1))
-            show["Price"] = show["price"].map(lambda x: "N/A" if pd.isna(x) else f"${x:,.2f}")
-            show["Mean Target"] = show["target_mean"].map(lambda x: "N/A" if pd.isna(x) else f"${x:,.2f}")
-            show["Target Gap"] = show["analyst_upside"].map(lambda x: f"{x:+.1f}%")
-            show["Analysts"] = show["analyst_count"].map(lambda x: f"{int(x)}")
-            show["Conviction"] = show["score"].map(lambda x: f"{x:.1f}")
-            st.dataframe(show[["Rank", "ticker", "company", "Price", "Mean Target", "Target Gap", "Analysts", "Conviction"]], use_container_width=True, hide_index=True)
-
-with tab_up:
-    st.caption("Quarterly rankings update only on **Jan 1, Apr 1, Jul 1, and Oct 1**.")
-    if winners.empty:
-        if latest_q:
-            st.info(f"One quarterly snapshot exists ({quarter_start_label(latest_q)}). Movers will appear after the next quarter-start snapshot.")
-        else:
-            st.info("No quarterly snapshots yet. The scheduled GitHub job will create them on Jan 1, Apr 1, Jul 1, and Oct 1.")
-    else:
-        st.caption(f"Comparing **{quarter_start_label(prior_q)} → {quarter_start_label(latest_q)}**")
-        show = winners.copy()
-        show.insert(0, "Rank", range(1, len(show) + 1))
-        show["Current"] = show["score_current"].map(lambda x: f"{x:.1f}")
-        show["Prior"] = show["score_prior"].map(lambda x: f"{x:.1f}")
-        show["Change"] = show["change"].map(lambda x: f"+{x:.1f}" if x >= 0 else f"{x:.1f}")
-        st.dataframe(show[["Rank", "ticker", "company", "Current", "Prior", "Change"]], use_container_width=True, hide_index=True)
-
-with tab_down:
-    st.caption("Quarterly rankings update only on **Jan 1, Apr 1, Jul 1, and Oct 1**.")
-    if losers.empty:
-        if latest_q:
-            st.info(f"One quarterly snapshot exists ({quarter_start_label(latest_q)}). Fallers will appear after the next quarter-start snapshot.")
-        else:
-            st.info("No quarterly snapshots yet. The scheduled GitHub job will create them on Jan 1, Apr 1, Jul 1, and Oct 1.")
-    else:
-        st.caption(f"Comparing **{quarter_start_label(prior_q)} → {quarter_start_label(latest_q)}**")
-        show = losers.copy()
-        show.insert(0, "Rank", range(1, len(show) + 1))
-        show["Current"] = show["score_current"].map(lambda x: f"{x:.1f}")
-        show["Prior"] = show["score_prior"].map(lambda x: f"{x:.1f}")
-        show["Change"] = show["change"].map(lambda x: f"{x:.1f}")
-        st.dataframe(show[["Rank", "ticker", "company", "Current", "Prior", "Change"]], use_container_width=True, hide_index=True)
-
-st.divider()
-st.markdown("## Single-stock analysis")
-
-left, right = st.columns([3, 1])
-with left:
-    symbol = st.text_input("Ticker", value="AVGO", placeholder="AVGO, GOOGL, META…").upper().strip()
-with right:
-    st.write("")
-    st.write("")
-    run = st.button("Analyze Live", type="primary", use_container_width=True)
-    force = st.button("Force Refresh", use_container_width=True, help="Retry Yahoo if a ticker came back with missing data.")
-
-if (run or force) and symbol:
+def render_stock_result(symbol, force=False):
     with st.spinner(f"Pulling available data for {symbol}…"):
         result = fetch_stock(symbol, cache_bust=(str(time.time()) if force else None))
 
@@ -843,24 +758,25 @@ if (run or force) and symbol:
 
     st.divider()
     st.subheader(f"{result['company']} ({symbol})")
-    st.caption(f"{result['sector']} • {result['industry']} • Data fetched {result['fetched_at']}")
+    st.caption(f"{result['sector']} • {result['industry']} • Updated {result['fetched_at']}")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Conviction Score", "N/A" if score is None else f"{score:.1f}/100")
     c2.metric("Rating", label(score))
     c3.metric("Price", "N/A" if result["price"] is None else f"${result['price']:,.2f}")
     c4.metric("Data Coverage", f"{available}/10")
+
     if available < 7:
         st.warning(
-            f"Only {available}/10 factors came back from the free Yahoo feed. This stock is **not eligible for leaderboard ranking**. "
-            "Click **Force Refresh** once; if it is still low, the data provider is the limitation—not the ticker."
+            f"Only {available}/10 factors came back from the free data feed. This stock is **not eligible for leaderboard ranking**. "
+            "Try **Force Refresh** once."
         )
 
     c5, c6, c7, c8 = st.columns(4)
     c5.metric("Market Cap", market_cap_fmt(result["market_cap"]))
-    c6.metric("Analyst Mean Target", "N/A" if result["target_mean"] is None else f"${result['target_mean']:,.2f}")
-    c7.metric("Analyst Upside", fmt(m["analyst_upside"]))
-    c8.metric("Consensus", str(result["recommendation"]).replace("_", " ").title())
+    c6.metric("Mean Analyst Target", "N/A" if result["target_mean"] is None else f"${result['target_mean']:,.2f}")
+    c7.metric("Target Upside", fmt(m["analyst_upside"]))
+    c8.metric("Analysts", "N/A" if result["analyst_count"] is None else f"{int(result['analyst_count'])}")
 
     metric_rows = [
         ("EPS Growth", m["eps_growth"], "%"),
@@ -884,7 +800,7 @@ if (run or force) and symbol:
         }
         for name, value, unit in metric_rows
     ])
-    st.markdown("### Live Research Breakdown")
+    st.markdown("### 10-factor breakdown")
     st.dataframe(table, use_container_width=True, hide_index=True)
 
     chart_df = pd.DataFrame(
@@ -896,13 +812,13 @@ if (run or force) and symbol:
 
     strengths, risks = [], []
     if m["eps_growth"] is not None and m["eps_growth"] >= 20: strengths.append("Strong EPS growth")
-    if m["revenue_growth"] is not None and m["revenue_growth"] >= 15: strengths.append("Healthy top-line growth")
+    if m["revenue_growth"] is not None and m["revenue_growth"] >= 15: strengths.append("Healthy revenue growth")
     if m["net_margin"] is not None and m["net_margin"] >= 20: strengths.append("High profitability")
     if m["roic"] is not None and m["roic"] >= 15: strengths.append("Strong capital efficiency")
     if m["analyst_upside"] is not None and (result["analyst_count"] or 0) >= 8 and m["analyst_upside"] >= 15: strengths.append("Strong analyst target upside with broad coverage")
     if m["institutional_ownership"] is not None and m["institutional_ownership"] >= 65: strengths.append("High institutional ownership")
     if m["momentum"] is not None and m["momentum"] >= 15: strengths.append("Strong 12-month momentum")
-    if m["chart_health"] is not None and m["chart_health"] >= 75: strengths.append("Healthy price chart and trend")
+    if m["chart_health"] is not None and m["chart_health"] >= 75: strengths.append("Healthy chart and trend")
 
     if m["forward_pe"] is not None and m["forward_pe"] > 40: risks.append("Elevated forward valuation")
     if m["eps_growth"] is not None and m["eps_growth"] < 5: risks.append("Weak/negative EPS growth")
@@ -917,95 +833,232 @@ if (run or force) and symbol:
         st.markdown("### Strengths")
         st.write("\n".join(f"• {x}" for x in strengths) if strengths else "• No standout strength threshold triggered")
     with s2:
-        st.markdown("### Risks")
+        st.markdown("### Watch-outs")
         st.write("\n".join(f"• {x}" for x in risks) if risks else "• No major risk threshold triggered")
 
-    st.markdown("### Shareable Summary")
-    if score is not None:
-        summary = f"{symbol} scores {score:.1f}/100 on Conviction AI ({label(score)}) using {available}/10 available live factors."
-        if strengths:
-            summary += " Strengths: " + ", ".join(strengths[:3]) + "."
-        if risks:
-            summary += " Key risk: " + risks[0] + "."
-        st.code(summary)
-
-    with st.expander("Methodology & data caveats"):
+    with st.expander("How the score works"):
         st.write(
-            "The score is a transparent weighted model, not a prediction model. ROIC is an approximation calculated from the latest statements when the needed rows are available. "
-            "Institutional ownership is a current ownership percentage, not hedge-fund flow. Insider activity is a rough signal from reported transactions. Analyst Conviction combines mean-target upside, analyst count, and consensus rating, and requires at least 8 covering analysts. "
-            "Chart Health combines the current price versus the 50-day and 200-day moving averages, the 50/200-day trend relationship, 3-month momentum, and distance from the 52-week high. "
-            "Yahoo/yfinance fields can be delayed, missing, or defined differently by issuer."
+            "Conviction AI is a transparent weighted research score, not a prediction. Missing metrics are excluded and the remaining weights are re-normalized. "
+            "Analyst Conviction requires at least 8 analysts and combines target upside, analyst count, and consensus rating. "
+            "Chart Health uses the 50-day and 200-day moving averages, trend relationship, 3-month momentum, and distance from the 52-week high."
+        )
+        weight_df = pd.DataFrame({"Factor": list(WEIGHTS.keys()), "Weight": [f"{v:.0%}" for v in WEIGHTS.values()]})
+        st.dataframe(weight_df, hide_index=True, use_container_width=True)
+
+
+with main_stocks:
+    stock_search_tab, market_tab = st.tabs(["🔎 Search a Stock", "🏆 Market Leaders"])
+
+    with stock_search_tab:
+        st.markdown("### Search any stock")
+        st.caption("Get the important information in one place without digging through ten different websites.")
+        left, right = st.columns([3, 1])
+        with left:
+            symbol = st.text_input("Ticker", value="AVGO", placeholder="AVGO, GOOGL, META…", key="stock_search_ticker").upper().strip()
+        with right:
+            st.write("")
+            run = st.button("Analyze", type="primary", use_container_width=True, key="stock_analyze")
+            force = st.button("Force Refresh", use_container_width=True, key="stock_force", help="Retry the free data feed if fields came back missing.")
+
+        if (run or force) and symbol:
+            render_stock_result(symbol, force=force)
+        elif run:
+            st.warning("Enter a ticker first.")
+        else:
+            st.info("Try **AVGO**, **GOOGL**, **META**, **SPGI**, **VST**, or another U.S.-listed ticker.")
+
+    with market_tab:
+        st.markdown("### Market Leaders")
+        st.caption("Three simple views. No stock appears unless at least **7 of 10 factors** are available.")
+
+        universe_choice = st.radio(
+            "Market universe",
+            ["S&P 500 + Nasdaq-100", "S&P 500", "Nasdaq-100"],
+            horizontal=True,
+            key="market_universe_choice",
+        )
+        universe_df = build_market_universe(universe_choice)
+        leaderboard_universe = universe_df["ticker"].tolist()
+
+        scan = st.button(
+            f"Refresh market scan ({len(leaderboard_universe):,} stocks)",
+            type="primary",
+            use_container_width=True,
+            key="market_scan_button",
         )
 
-    if result["errors"]:
-        with st.expander("Data warnings"):
-            for err in result["errors"]:
-                st.warning(err)
+        if "leaderboard_df" not in st.session_state:
+            st.session_state.leaderboard_df = pd.DataFrame()
 
-elif run:
-    st.warning("Enter a ticker first.")
-else:
-    st.markdown("### Try it")
-    st.write("Enter **AVGO**, **GOOGL**, **META**, **AMZN**, or another U.S.-listed ticker and click **Analyze Live**.")
+        if scan:
+            progress = st.progress(0.0, text=f"Scoring 0 / {len(leaderboard_universe)} stocks…")
+            def update_progress(done, total):
+                progress.progress(done / max(total, 1), text=f"Scoring {done:,} / {total:,} stocks…")
+            st.session_state.leaderboard_df = scan_universe(
+                leaderboard_universe, workers=4, progress_callback=update_progress
+            )
+            progress.empty()
+
+        leaderboard_df = st.session_state.leaderboard_df
+        snapshots = load_snapshots()
+        winners, losers, prior_q, latest_q = quarter_movers(snapshots)
+
+        top_tab, improve_tab, analyst_tab = st.tabs(["Top Stocks", "Biggest Improvers", "Analyst Opportunities"])
+
+        with top_tab:
+            if leaderboard_df.empty:
+                st.info("Click **Refresh market scan** to build the list.")
+            else:
+                top10 = leaderboard_df.head(10).copy()
+                top10.insert(0, "Rank", range(1, len(top10) + 1))
+                top10["Score"] = top10["score"].map(lambda x: f"{x:.1f}")
+                top10["Coverage"] = top10["coverage"].map(lambda x: f"{int(x)}/10")
+                top10["1Y Return"] = top10["one_year_return"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
+                top10["Analyst Upside"] = top10["analyst_upside"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
+                st.dataframe(
+                    top10[["Rank", "ticker", "company", "Score", "Coverage", "1Y Return", "Analyst Upside"]],
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        with improve_tab:
+            st.caption("Updates on **Jan 1, Apr 1, Jul 1, and Oct 1** using Conviction Score—not price movement.")
+            if winners.empty:
+                if latest_q:
+                    st.info(f"First snapshot saved for **{quarter_start_label(latest_q)}**. This list appears after the next quarterly snapshot.")
+                else:
+                    st.info("No quarterly snapshots yet. The scheduled job creates them automatically on Jan 1, Apr 1, Jul 1, and Oct 1.")
+            else:
+                st.caption(f"Comparing **{quarter_start_label(prior_q)} → {quarter_start_label(latest_q)}**")
+                show = winners.copy()
+                show.insert(0, "Rank", range(1, len(show) + 1))
+                show["Current Score"] = show["score_current"].map(lambda x: f"{x:.1f}")
+                show["Prior Score"] = show["score_prior"].map(lambda x: f"{x:.1f}")
+                show["Change"] = show["change"].map(lambda x: f"+{x:.1f}" if x >= 0 else f"{x:.1f}")
+                st.dataframe(show[["Rank", "ticker", "company", "Current Score", "Prior Score", "Change"]], use_container_width=True, hide_index=True)
+
+            with st.expander("Show biggest fallers"):
+                if losers.empty:
+                    st.caption("Fallers will appear once two quarterly snapshots exist.")
+                else:
+                    fall = losers.copy()
+                    fall.insert(0, "Rank", range(1, len(fall) + 1))
+                    fall["Current Score"] = fall["score_current"].map(lambda x: f"{x:.1f}")
+                    fall["Prior Score"] = fall["score_prior"].map(lambda x: f"{x:.1f}")
+                    fall["Change"] = fall["change"].map(lambda x: f"{x:.1f}")
+                    st.dataframe(fall[["Rank", "ticker", "company", "Current Score", "Prior Score", "Change"]], use_container_width=True, hide_index=True)
+
+        with analyst_tab:
+            st.caption("Largest gaps between current price and the mean analyst target. Requires **8+ analysts**.")
+            if leaderboard_df.empty:
+                st.info("Click **Refresh market scan** first.")
+            else:
+                opp = leaderboard_df.copy()
+                opp["analyst_count"] = pd.to_numeric(opp.get("analyst_count"), errors="coerce")
+                opp["analyst_upside"] = pd.to_numeric(opp.get("analyst_upside"), errors="coerce")
+                opp = opp[(opp["analyst_count"] >= 8) & opp["analyst_upside"].notna()].sort_values("analyst_upside", ascending=False).head(10)
+                if opp.empty:
+                    st.info("No stocks in this scan had enough analyst coverage plus a usable mean target.")
+                else:
+                    show = opp.copy()
+                    show.insert(0, "Rank", range(1, len(show) + 1))
+                    show["Price"] = show["price"].map(lambda x: "N/A" if pd.isna(x) else f"${x:,.2f}")
+                    show["Mean Target"] = show["target_mean"].map(lambda x: "N/A" if pd.isna(x) else f"${x:,.2f}")
+                    show["Upside"] = show["analyst_upside"].map(lambda x: f"{x:+.1f}%")
+                    show["Analysts"] = show["analyst_count"].map(lambda x: f"{int(x)}")
+                    show["Conviction"] = show["score"].map(lambda x: f"{x:.1f}")
+                    st.dataframe(show[["Rank", "ticker", "company", "Price", "Mean Target", "Upside", "Analysts", "Conviction"]], use_container_width=True, hide_index=True)
 
 
+with main_etfs:
+    st.markdown("### ETF research made simple")
+    st.caption("Find a specific ETF or browse performance. Leveraged ETFs are hidden by default.")
 
-st.divider()
-st.markdown("## 🧺 ETF Leaderboard")
-st.caption("A beginner-friendly way to compare popular ETFs. **YTD and 1Y are total returns; 3Y, 5Y and 10Y are annualized CAGR.** Leveraged ETFs are excluded by default.")
+    finder_tab, top_etf_tab, all_around_tab = st.tabs(["🔎 ETF Finder", "🏁 Top ETFs", "⭐ Best All-Around"])
 
-etf_c1, etf_c2, etf_c3 = st.columns([1.2, 1.2, 1])
-with etf_c1:
-    etf_period = st.selectbox("Performance period", ["YTD", "1Y", "3Y CAGR", "5Y CAGR", "10Y CAGR"], index=3)
-with etf_c2:
-    etf_categories = ["All"] + sorted({r[2] for r in ETF_UNIVERSE if not r[3]})
-    etf_category = st.selectbox("ETF type", etf_categories, index=0)
-with etf_c3:
-    include_leveraged = st.toggle("Include leveraged ETFs", value=False, help="Off by default because leveraged funds can distort beginner-oriented rankings.")
-
-eligible_etfs = [r for r in ETF_UNIVERSE if (include_leveraged or not r[3]) and (etf_category == "All" or r[2] == etf_category)]
-if st.button("Refresh ETF Rankings", use_container_width=True):
-    with st.spinner(f"Comparing {len(eligible_etfs)} ETFs…"):
-        st.session_state.etf_df = scan_etfs(eligible_etfs)
-
-if "etf_df" not in st.session_state:
-    st.session_state.etf_df = pd.DataFrame()
-
-etf_df = st.session_state.etf_df
-etf_perf_tab, etf_all_tab = st.tabs(["🏁 Top Performance", "⭐ Best All-Around"])
-
-with etf_perf_tab:
-    if etf_df.empty:
-        st.info("Choose a period/category and click **Refresh ETF Rankings**.")
-    else:
-        period_key = {"YTD":"ytd", "1Y":"1Y", "3Y CAGR":"3Y", "5Y CAGR":"5Y", "10Y CAGR":"10Y"}[etf_period]
-        ranked = etf_df.dropna(subset=[period_key]).sort_values(period_key, ascending=False).head(10).copy()
-        if ranked.empty:
-            st.info("Not enough history was available for this selection.")
+    with finder_tab:
+        etf_lookup = st.text_input("ETF ticker", placeholder="VOO, VOOG, QQQM, SPMO, MOAT…", key="etf_lookup_clean").strip().upper()
+        if etf_lookup:
+            known = {r[0]: r for r in ETF_UNIVERSE}
+            if etf_lookup in known:
+                row = known[etf_lookup]
+                with st.spinner(f"Loading {etf_lookup}…"):
+                    m = fetch_etf_metrics(etf_lookup)
+                st.subheader(f"{row[1]} ({etf_lookup})")
+                st.caption(row[2])
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("YTD", "N/A" if m.get("ytd") is None else f"{m['ytd']:+.1f}%")
+                c2.metric("1Y", "N/A" if m.get("1Y") is None else f"{m['1Y']:+.1f}%")
+                c3.metric("3Y CAGR", "N/A" if m.get("3Y") is None else f"{m['3Y']:.1f}%")
+                c4.metric("5Y CAGR", "N/A" if m.get("5Y") is None else f"{m['5Y']:.1f}%")
+                c5.metric("10Y CAGR", "N/A" if m.get("10Y") is None else f"{m['10Y']:.1f}%")
+                e1, e2, e3 = st.columns(3)
+                e1.metric("Expense Ratio", "N/A" if m.get("expense_ratio") is None else f"{m['expense_ratio']:.2f}%")
+                e2.metric("5Y Volatility", "N/A" if m.get("volatility_5y") is None else f"{m['volatility_5y']:.1f}%")
+                e3.metric("5Y Max Drawdown", "N/A" if m.get("max_drawdown_5y") is None else f"{m['max_drawdown_5y']:.1f}%")
+            else:
+                st.warning("That ETF is not in the curated universe yet.")
         else:
+            st.info("Try **VOO**, **VOOG**, **QQQM**, **SCHG**, **SPMO**, **MOAT**, **VGT**, or **SMH**.")
+
+    with top_etf_tab:
+        period = st.radio("Performance period", ["YTD", "1Y", "3Y CAGR", "5Y CAGR", "10Y CAGR"], horizontal=True, index=3, key="etf_period_clean")
+        c1, c2 = st.columns([2, 1])
+        with c1:
+            categories = ["All"] + sorted({r[2] for r in ETF_UNIVERSE if not r[3]})
+            category = st.selectbox("ETF type", categories, key="etf_category_clean")
+        with c2:
+            include_leveraged = st.toggle("Include leveraged", value=False, key="etf_leveraged_clean")
+
+        eligible = [r for r in ETF_UNIVERSE if (include_leveraged or not r[3]) and (category == "All" or r[2] == category)]
+        if st.button(f"Refresh ETF rankings ({len(eligible)} funds)", type="primary", use_container_width=True, key="etf_refresh_clean"):
+            with st.spinner(f"Comparing {len(eligible)} ETFs…"):
+                st.session_state.etf_df = scan_etfs(eligible)
+
+        if "etf_df" not in st.session_state:
+            st.session_state.etf_df = pd.DataFrame()
+        etf_df = st.session_state.etf_df
+
+        if etf_df.empty:
+            st.info("Choose a period and click **Refresh ETF rankings**.")
+        else:
+            period_key = {"YTD":"ytd", "1Y":"1Y", "3Y CAGR":"3Y", "5Y CAGR":"5Y", "10Y CAGR":"10Y"}[period]
+            ranked = etf_df.dropna(subset=[period_key]).sort_values(period_key, ascending=False).head(10).copy()
+            if ranked.empty:
+                st.info("Not enough history was available for this selection.")
+            else:
+                ranked.insert(0, "Rank", range(1, len(ranked)+1))
+                ranked["Return"] = ranked[period_key].map(lambda x: f"{x:+.1f}%")
+                ranked["Expense"] = ranked["expense_ratio"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.2f}%")
+                st.dataframe(ranked[["Rank","ticker","name","category","Return","Expense"]], use_container_width=True, hide_index=True)
+                st.caption("YTD and 1Y are total returns. 3Y, 5Y and 10Y are annualized CAGR.")
+
+    with all_around_tab:
+        st.caption("Balances long-term returns with volatility, drawdown, expenses, fund size, and liquidity.")
+        include_leveraged_all = st.toggle("Include leveraged funds", value=False, key="etf_leveraged_all")
+        all_rows = [r for r in ETF_UNIVERSE if include_leveraged_all or not r[3]]
+        if st.button(f"Build all-around ranking ({len(all_rows)} funds)", use_container_width=True, key="etf_all_refresh"):
+            with st.spinner(f"Comparing {len(all_rows)} ETFs…"):
+                st.session_state.etf_all_df = scan_etfs(all_rows)
+
+        if "etf_all_df" not in st.session_state:
+            st.session_state.etf_all_df = pd.DataFrame()
+        all_df = st.session_state.etf_all_df
+
+        if all_df.empty:
+            st.info("Click **Build all-around ranking**.")
+        else:
+            ranked = all_df.dropna(subset=["all_around"]).sort_values("all_around", ascending=False).head(10).copy()
             ranked.insert(0, "Rank", range(1, len(ranked)+1))
-            ranked["Return"] = ranked[period_key].map(lambda x: f"{x:+.1f}%")
-            ranked["Expense Ratio"] = ranked["expense_ratio"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.2f}%")
-            st.dataframe(ranked[["Rank","ticker","name","category","Return","Expense Ratio"]], use_container_width=True, hide_index=True)
-            st.caption("Performance is based on adjusted market-price history and does not guarantee future results.")
-
-with etf_all_tab:
-    st.caption("Balances long-term returns with volatility, drawdown, fees, fund size and liquidity. This is a research shortcut—not a recommendation.")
-    if etf_df.empty:
-        st.info("Refresh ETF Rankings first.")
-    else:
-        aa = etf_df.dropna(subset=["all_around"]).sort_values("all_around", ascending=False).head(10).copy()
-        if aa.empty:
-            st.info("Not enough data was available to calculate all-around scores.")
-        else:
-            aa.insert(0, "Rank", range(1, len(aa)+1))
-            aa["ETF Score"] = aa["all_around"].map(lambda x: f"{x:.1f}/100")
-            aa["5Y CAGR"] = aa["5Y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
-            aa["10Y CAGR"] = aa["10Y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
-            aa["5Y Max DD"] = aa["max_drawdown_5y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
-            aa["Expense"] = aa["expense_ratio"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.2f}%")
-            st.dataframe(aa[["Rank","ticker","name","category","ETF Score","5Y CAGR","10Y CAGR","5Y Max DD","Expense"]], use_container_width=True, hide_index=True)
-
+            ranked["ETF Score"] = ranked["all_around"].map(lambda x: f"{x:.1f}")
+            ranked["5Y CAGR"] = ranked["5Y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
+            ranked["10Y CAGR"] = ranked["10Y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
+            ranked["Expense"] = ranked["expense_ratio"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.2f}%")
+            st.dataframe(ranked[["Rank","ticker","name","category","ETF Score","5Y CAGR","10Y CAGR","Expense"]], use_container_width=True, hide_index=True)
 
 st.divider()
-st.caption("Version 0.6 — Stocks + ETF Leaderboards, 10-factor Conviction Score, Analyst Conviction, Chart Health, and quarter-start movers/fallers snapshots.")
+with st.expander("About Conviction AI"):
+    st.write(
+        "Conviction AI is designed to make stock and ETF research easier for beginner investors. It summarizes public market data into simple rankings and research views. "
+        "It is a research tool, not investment advice, and free market-data feeds can be delayed or incomplete."
+    )
