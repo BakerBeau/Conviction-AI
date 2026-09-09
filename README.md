@@ -1,56 +1,52 @@
-# Conviction AI v0.6.2
+# Conviction AI v0.6.4
 
-Beginner-friendly stock and ETF research dashboard built with Streamlit.
+Beginner-friendly stock and ETF research in one Streamlit app.
 
-## Cleaned-up layout
+## New in v0.6.4 — Hidden Gems
 
-The app now uses two simple top-level sections:
+The Stocks section now includes a final **Hidden Gems** tab.
 
-- **Stocks**
-  - Search a Stock
-  - Market Leaders
-    - Top Stocks
-    - Biggest Improvers
-    - Analyst Opportunities
-    - Biggest Fallers tucked inside an expander
-- **ETFs**
-  - ETF Finder
-  - Top ETFs
-  - Best All-Around
+A Hidden Gem must first pass a quality screen:
+- Conviction Score of 70+
+- At least 7/10 scoring factors available
+- S&P 500 company
+- Approx. $2B–$150B market cap
+- 8–20 covering analysts
+- Chart Health of 60+
+- Positive EPS/revenue growth, with at least one at 10%+
+- No clearly weak institutional/insider signal
+- At least 5% analyst target upside when that data is available
 
-The developer-style sidebar and extra leaderboard clutter were removed from the main experience.
+The app then calculates a separate **Hidden Gem Score** that rewards quality plus being relatively underfollowed. Low trading volume by itself is not treated as a positive signal.
 
-## Stocks
+The discovery button checks a random slice of the S&P 500, builds a qualifying pool, and randomly surfaces one candidate. Users can roll another candidate from the same pool or open the full 10-factor analysis.
 
-- 10-factor Conviction Score
-- Minimum 7/10 factor coverage for leaderboard eligibility
-- Top Stocks shows score, coverage, 1-year return and analyst upside
-- Analyst Opportunities requires at least 8 analysts
-- Quarterly score changes update on Jan 1, Apr 1, Jul 1 and Oct 1
-- Biggest Fallers remain available but no longer take up a primary tab
+## Main sections
 
-## ETFs
+### Stocks
+- Search a Stock
+- Market Leaders
+  - Top Stocks
+  - Biggest Improvers
+  - Analyst Opportunities
+- Hidden Gems
 
-- Expanded curated universe including VOO, VOOG, QQQM, SCHG, SPMO, MOAT, VGT, SMH, XMMO, AVUV and many more
-- ETF Finder for direct ticker lookup
-- Top ETFs with YTD, 1Y, 3Y CAGR, 5Y CAGR and 10Y CAGR toggles
-- Best All-Around score balances returns, volatility, drawdown, expenses, AUM and liquidity
-- Leveraged ETFs hidden by default
+### ETFs
+- ETF Finder
+- Top ETFs
+- Best All-Around
 
-## Deploy on Streamlit Community Cloud
+## Run locally
 
-1. Unzip this package.
-2. In your GitHub `Conviction-AI` repository, use **Add file → Upload files**.
-3. Upload/replace the files from this package.
-4. Click **Commit changes**.
-5. Your existing Streamlit app should redeploy automatically from `app.py`.
+```bash
+pip install -r requirements.txt
+streamlit run app.py
+```
 
-## Quarterly snapshots
+## Deploy
 
-The included GitHub Actions workflow runs `quarterly_snapshot.py` at the start of each quarter and commits the updated `quarterly_scores.csv` back to the repository.
+Upload these files to the existing GitHub repository and commit the changes. Streamlit Community Cloud should redeploy automatically.
 
-## Data note
+## Disclaimer
 
-This MVP uses Yahoo Finance through `yfinance`. Free public data can be delayed, incomplete or temporarily unavailable. Under-covered stocks are excluded from rankings rather than being treated as zero.
-
-Conviction AI is a research tool, not personalized investment advice.
+For research and educational purposes only. Not investment advice. Live market data may be delayed, incomplete, or unavailable.
