@@ -16,7 +16,7 @@ WEIGHTS = {
     'Net Margin': 0.11,
     'ROIC / Capital Efficiency': 0.11,
     'Forward P/E': 0.10,
-    'Analyst Upside': 0.11,
+    'Analyst Conviction': 0.11,
     'Institutional Ownership': 0.07,
     'Insider Activity': 0.05,
     '12M Momentum': 0.08,
@@ -132,6 +132,20 @@ def analyst_upside(info):
     return (target / current - 1) * 100
 
 
+def analyst_conviction(info):
+    upside = analyst_upside(info)
+    count = clean_num(info.get('numberOfAnalystOpinions'))
+    recommendation_mean = clean_num(info.get('recommendationMean'))
+    if upside is None or count is None or count < 8:
+        return None
+    parts = [(normalize(upside, -10, 40), 0.60), (normalize(count, 8, 35), 0.20)]
+    if recommendation_mean is not None:
+        parts.append((normalize(recommendation_mean, 1.0, 4.0, reverse=True), 0.20))
+    parts = [(a, w) for a, w in parts if a is not None]
+    denom = sum(w for _, w in parts)
+    return round(sum(a*w for a, w in parts)/denom, 1) if denom else None
+
+
 def fetch_info_with_retry(ticker):
     t = yf.Ticker(ticker)
     info = {}
@@ -166,6 +180,7 @@ def fetch_info_with_retry(ticker):
         'roic': calc_roic(fin, bs),
         'forward_pe': clean_num(info.get('forwardPE')),
         'analyst_upside': analyst_upside(info),
+        'analyst_conviction': analyst_conviction(info),
         'institutional_ownership': pct(info.get('heldPercentInstitutions')),
         'insider_activity': insider_score(insiders),
         'momentum': momentum_12m(hist),
@@ -181,7 +196,7 @@ def score_stock(m):
         'Net Margin': normalize(m.get('net_margin'), -5, 35),
         'ROIC / Capital Efficiency': normalize(m.get('roic'), 0, 30),
         'Forward P/E': normalize(m.get('forward_pe'), 10, 45, reverse=True),
-        'Analyst Upside': normalize(m.get('analyst_upside'), -10, 35),
+        'Analyst Conviction': clean_num(m.get('analyst_conviction')),
         'Institutional Ownership': normalize(m.get('institutional_ownership'), 20, 90),
         'Insider Activity': normalize(m.get('insider_activity'), -5, 5),
         '12M Momentum': normalize(m.get('momentum'), -20, 40),
@@ -220,7 +235,8 @@ def quarter_id():
 def score_one(row):
     ticker = row.ticker
     info, metrics = fetch_info_with_retry(ticker)
-    coverage = sum(v is not None for v in metrics.values())
+    scoring_keys = ['eps_growth','revenue_growth','net_margin','roic','forward_pe','analyst_conviction','institutional_ownership','insider_activity','momentum','chart_health']
+    coverage = sum(metrics.get(k) is not None for k in scoring_keys)
     score = score_stock(metrics)
     if score is None or coverage < 7:
         return None

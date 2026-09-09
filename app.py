@@ -41,7 +41,7 @@ WEIGHTS = {
     "Net Margin": 0.11,
     "ROIC / Capital Efficiency": 0.11,
     "Forward P/E": 0.10,
-    "Analyst Upside": 0.11,
+    "Analyst Conviction": 0.11,
     "Institutional Ownership": 0.07,
     "Insider Activity": 0.05,
     "12M Momentum": 0.08,
@@ -173,6 +173,31 @@ def analyst_upside(info):
     return (target / current - 1) * 100
 
 
+def analyst_conviction(info):
+    """0-100 analyst signal. Requires meaningful coverage so a tiny analyst sample cannot dominate."""
+    upside = analyst_upside(info)
+    count = clean_num(info.get("numberOfAnalystOpinions"))
+    recommendation_mean = clean_num(info.get("recommendationMean"))
+
+    # Require a real analyst sample before this factor contributes to Conviction Score.
+    if upside is None or count is None or count < 8:
+        return None
+
+    parts = []
+    weights = []
+    parts.append(normalize(upside, -10, 40)); weights.append(0.60)
+    parts.append(normalize(count, 8, 35)); weights.append(0.20)
+    if recommendation_mean is not None:
+        # Yahoo convention is roughly 1=Strong Buy, 5=Sell.
+        parts.append(normalize(recommendation_mean, 1.0, 4.0, reverse=True)); weights.append(0.20)
+
+    good = [(p, w) for p, w in zip(parts, weights) if p is not None]
+    if not good:
+        return None
+    denom = sum(w for _, w in good)
+    return round(sum(p*w for p, w in good) / denom, 1)
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_stock(symbol, cache_bust=None):
     t = yf.Ticker(symbol)
@@ -218,6 +243,7 @@ def fetch_stock(symbol, cache_bust=None):
         "roic": calc_roic(fin, bs),
         "forward_pe": clean_num(info.get("forwardPE")),
         "analyst_upside": analyst_upside(info),
+        "analyst_conviction": analyst_conviction(info),
         "institutional_ownership": pct(info.get("heldPercentInstitutions")),
         "insider_activity": insider_score(insiders),
         "momentum": momentum_12m(hist),
@@ -247,7 +273,7 @@ def score_stock(m):
         "Net Margin": normalize(m.get("net_margin"), -5, 35),
         "ROIC / Capital Efficiency": normalize(m.get("roic"), 0, 30),
         "Forward P/E": normalize(m.get("forward_pe"), 10, 45, reverse=True),
-        "Analyst Upside": normalize(m.get("analyst_upside"), -10, 35),
+        "Analyst Conviction": clean_num(m.get("analyst_conviction")),
         "Institutional Ownership": normalize(m.get("institutional_ownership"), 20, 90),
         "Insider Activity": normalize(m.get("insider_activity"), -5, 5),
         "12M Momentum": normalize(m.get("momentum"), -20, 40),
@@ -474,7 +500,8 @@ def scan_universe(tickers, workers=8, progress_callback=None):
     def score_one(ticker):
         result = fetch_stock(ticker)
         score, _, _ = score_stock(result["metrics"])
-        coverage = sum(v is not None for v in result["metrics"].values())
+        scoring_keys = ["eps_growth", "revenue_growth", "net_margin", "roic", "forward_pe", "analyst_conviction", "institutional_ownership", "insider_activity", "momentum", "chart_health"]
+        coverage = sum(result["metrics"].get(k) is not None for k in scoring_keys)
         if score is None or coverage < 7:
             return None
         return {
@@ -482,6 +509,10 @@ def scan_universe(tickers, workers=8, progress_callback=None):
             "company": result["company"],
             "score": round(score, 2),
             "coverage": coverage,
+            "analyst_upside": result["metrics"].get("analyst_upside"),
+            "analyst_count": result.get("analyst_count"),
+            "target_mean": result.get("target_mean"),
+            "price": result.get("price"),
             "fetched_at": result["fetched_at"],
         }
 
@@ -522,6 +553,156 @@ def market_cap_fmt(v):
     for n, s in [(1e12, "T"), (1e9, "B"), (1e6, "M")]:
         if abs(v) >= n: return f"${v/n:.2f}{s}"
     return f"${v:,.0f}"
+
+
+ETF_UNIVERSE = [
+    ("VOO", "S&P 500", "Broad Market", False), ("IVV", "S&P 500", "Broad Market", False),
+    ("SPY", "S&P 500", "Broad Market", False), ("VTI", "Total U.S. Market", "Broad Market", False),
+    ("QQQM", "Nasdaq-100", "Growth", False), ("QQQ", "Nasdaq-100", "Growth", False),
+    ("VOOG", "S&P 500 Growth", "Growth", False), ("SCHG", "Large-Cap Growth", "Growth", False),
+    ("VUG", "Large-Cap Growth", "Growth", False), ("IWF", "Russell 1000 Growth", "Growth", False),
+    ("VGT", "Information Technology", "Technology", False), ("XLK", "Technology Select Sector", "Technology", False),
+    ("FTEC", "Fidelity MSCI Information Technology", "Technology", False),
+    ("SMH", "Semiconductors", "Semiconductors", False), ("SOXX", "Semiconductors", "Semiconductors", False),
+    ("XSD", "Semiconductors", "Semiconductors", False),
+    ("SPMO", "S&P 500 Momentum", "Momentum", False), ("MTUM", "U.S. Momentum", "Momentum", False),
+    ("MOAT", "Wide Moat", "Quality", False), ("QUAL", "U.S. Quality", "Quality", False),
+    ("VTV", "Large-Cap Value", "Value", False), ("SCHV", "Large-Cap Value", "Value", False),
+    ("SCHD", "U.S. Dividend Equity", "Dividend", False), ("VIG", "Dividend Appreciation", "Dividend", False),
+    ("DGRO", "Dividend Growth", "Dividend", False),
+    ("IJH", "S&P MidCap 400", "Mid Cap", False), ("VO", "U.S. Mid Cap", "Mid Cap", False),
+    ("IJR", "S&P SmallCap 600", "Small Cap", False), ("VB", "U.S. Small Cap", "Small Cap", False),
+    ("VXUS", "Total International", "International", False), ("VEA", "Developed Markets", "International", False),
+    ("VWO", "Emerging Markets", "International", False),
+    ("XLE", "Energy Select Sector", "Sector", False), ("XLF", "Financial Select Sector", "Sector", False),
+    ("XLV", "Health Care Select Sector", "Sector", False), ("XLI", "Industrial Select Sector", "Sector", False),
+    ("IBIT", "Spot Bitcoin", "Alternative", False),
+    ("TQQQ", "3x Nasdaq-100", "Leveraged", True), ("SOXL", "3x Semiconductors", "Leveraged", True),
+    ("UPRO", "3x S&P 500", "Leveraged", True), ("SPXL", "3x S&P 500", "Leveraged", True),
+]
+
+
+def _price_on_or_after(closes, date):
+    if closes is None or closes.empty:
+        return None, None
+    idx = closes.index
+    try:
+        if getattr(idx, "tz", None) is not None:
+            date = pd.Timestamp(date, tz=idx.tz)
+        else:
+            date = pd.Timestamp(date).tz_localize(None)
+    except Exception:
+        date = pd.Timestamp(date)
+    subset = closes[closes.index >= date]
+    if subset.empty:
+        return None, None
+    return float(subset.iloc[0]), subset.index[0]
+
+
+def _trailing_return(closes, years=None, ytd=False):
+    if closes is None or closes.empty or len(closes) < 2:
+        return None
+    end_price = float(closes.iloc[-1])
+    end_date = closes.index[-1]
+    if ytd:
+        start_date = pd.Timestamp(year=end_date.year, month=1, day=1)
+    else:
+        start_date = pd.Timestamp(end_date) - pd.DateOffset(years=years)
+    start_price, actual_start = _price_on_or_after(closes, start_date)
+    if start_price is None or start_price <= 0:
+        return None
+    total = end_price / start_price - 1
+    if ytd or years == 1:
+        return total * 100
+    days = max((pd.Timestamp(end_date).tz_localize(None) - pd.Timestamp(actual_start).tz_localize(None)).days, 1)
+    return ((end_price / start_price) ** (365.25 / days) - 1) * 100
+
+
+def _max_drawdown(closes, years=5):
+    if closes is None or closes.empty:
+        return None
+    end_date = closes.index[-1]
+    start_date = pd.Timestamp(end_date) - pd.DateOffset(years=years)
+    subset = closes[closes.index >= start_date]
+    if len(subset) < 30:
+        return None
+    dd = subset / subset.cummax() - 1
+    return float(dd.min() * 100)
+
+
+def _annualized_vol(closes, years=5):
+    if closes is None or closes.empty:
+        return None
+    end_date = closes.index[-1]
+    start_date = pd.Timestamp(end_date) - pd.DateOffset(years=years)
+    subset = closes[closes.index >= start_date]
+    returns = subset.pct_change().dropna()
+    if len(returns) < 30:
+        return None
+    return float(returns.std() * (252 ** 0.5) * 100)
+
+
+@st.cache_data(ttl=21600, show_spinner=False)
+def fetch_etf_metrics(ticker):
+    t = yf.Ticker(ticker)
+    try:
+        hist = t.history(period="10y", auto_adjust=True)
+    except Exception:
+        hist = pd.DataFrame()
+    closes = hist["Close"].dropna() if not hist.empty and "Close" in hist else pd.Series(dtype=float)
+    try:
+        info = t.get_info() or {}
+    except Exception:
+        info = {}
+
+    return {
+        "ticker": ticker,
+        "ytd": _trailing_return(closes, ytd=True),
+        "1Y": _trailing_return(closes, years=1),
+        "3Y": _trailing_return(closes, years=3),
+        "5Y": _trailing_return(closes, years=5),
+        "10Y": _trailing_return(closes, years=10),
+        "volatility_5y": _annualized_vol(closes, years=5),
+        "max_drawdown_5y": _max_drawdown(closes, years=5),
+        "expense_ratio": pct(info.get("annualReportExpenseRatio")),
+        "aum": clean_num(info.get("totalAssets")),
+        "avg_volume": clean_num(info.get("averageVolume")),
+    }
+
+
+def etf_all_around_score(row):
+    """Beginner-oriented ETF score. Rewards durable returns and tradability; penalizes risk/cost."""
+    pieces = {
+        "5Y CAGR": (normalize(row.get("5Y"), 0, 25), 0.30),
+        "10Y CAGR": (normalize(row.get("10Y"), 0, 22), 0.25),
+        "Volatility": (normalize(row.get("volatility_5y"), 10, 40, reverse=True), 0.15),
+        "Max Drawdown": (normalize(row.get("max_drawdown_5y"), -55, -10), 0.15),
+        "Expense Ratio": (normalize(row.get("expense_ratio"), 0.03, 0.75, reverse=True), 0.08),
+        "AUM": (normalize(math.log10(row.get("aum")) if clean_num(row.get("aum")) and row.get("aum") > 0 else None, 8, 11.5), 0.04),
+        "Liquidity": (normalize(math.log10(row.get("avg_volume")) if clean_num(row.get("avg_volume")) and row.get("avg_volume") > 0 else None, 4, 7.5), 0.03),
+    }
+    available = [(score, weight) for score, weight in pieces.values() if score is not None]
+    if not available:
+        return None
+    w = sum(weight for _, weight in available)
+    return round(sum(score * weight for score, weight in available) / w, 1)
+
+
+def scan_etfs(rows, workers=6):
+    base = pd.DataFrame(rows, columns=["ticker", "name", "category", "leveraged"])
+    metrics = []
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, 10))) as pool:
+        futures = {pool.submit(fetch_etf_metrics, t): t for t in base["ticker"]}
+        for future in as_completed(futures):
+            try:
+                metrics.append(future.result())
+            except Exception:
+                pass
+    if not metrics:
+        return pd.DataFrame()
+    out = base.merge(pd.DataFrame(metrics), on="ticker", how="left")
+    out["all_around"] = out.apply(etf_all_around_score, axis=1)
+    return out
 
 
 with st.sidebar:
@@ -573,7 +754,7 @@ leaderboard_df = st.session_state.leaderboard_df
 snapshots = load_snapshots()
 winners, losers, prior_q, latest_q = quarter_movers(snapshots)
 
-tab_top, tab_up, tab_down = st.tabs(["🏆 Current Top 10", "🚀 Quarterly Risers", "📉 Quarterly Fallers"])
+tab_top, tab_analyst, tab_up, tab_down = st.tabs(["🏆 Current Top 10", "🎯 Analyst Opportunities", "🚀 Quarterly Risers", "📉 Quarterly Fallers"])
 with tab_top:
     if leaderboard_df.empty:
         st.info("Click **Refresh Current Top 10**. Stocks with fewer than 7/10 factors are automatically excluded.")
@@ -584,6 +765,28 @@ with tab_top:
         top10["Coverage"] = top10["coverage"].map(lambda x: f"{int(x)}/10")
         st.dataframe(top10[["Rank", "ticker", "company", "Score", "Coverage"]], use_container_width=True, hide_index=True)
         st.bar_chart(top10.set_index("ticker")[["score"]])
+
+
+with tab_analyst:
+    st.caption("Stocks with the largest gap between current price and the mean analyst target. Requires **at least 8 covering analysts** so a tiny sample does not create a misleading ranking.")
+    if leaderboard_df.empty:
+        st.info("Click **Refresh Current Top 10** first. The same market scan powers this list.")
+    else:
+        opp = leaderboard_df.copy()
+        opp["analyst_count"] = pd.to_numeric(opp.get("analyst_count"), errors="coerce")
+        opp["analyst_upside"] = pd.to_numeric(opp.get("analyst_upside"), errors="coerce")
+        opp = opp[(opp["analyst_count"] >= 8) & opp["analyst_upside"].notna()].sort_values("analyst_upside", ascending=False).head(10)
+        if opp.empty:
+            st.info("No stocks in this scan had enough analyst coverage plus a usable mean target.")
+        else:
+            show = opp.copy()
+            show.insert(0, "Rank", range(1, len(show) + 1))
+            show["Price"] = show["price"].map(lambda x: "N/A" if pd.isna(x) else f"${x:,.2f}")
+            show["Mean Target"] = show["target_mean"].map(lambda x: "N/A" if pd.isna(x) else f"${x:,.2f}")
+            show["Target Gap"] = show["analyst_upside"].map(lambda x: f"{x:+.1f}%")
+            show["Analysts"] = show["analyst_count"].map(lambda x: f"{int(x)}")
+            show["Conviction"] = show["score"].map(lambda x: f"{x:.1f}")
+            st.dataframe(show[["Rank", "ticker", "company", "Price", "Mean Target", "Target Gap", "Analysts", "Conviction"]], use_container_width=True, hide_index=True)
 
 with tab_up:
     st.caption("Quarterly rankings update only on **Jan 1, Apr 1, Jul 1, and Oct 1**.")
@@ -635,7 +838,8 @@ if (run or force) and symbol:
 
     m = result["metrics"]
     score, contributions, raw_scores = score_stock(m)
-    available = sum(v is not None for v in m.values())
+    scoring_keys = ["eps_growth", "revenue_growth", "net_margin", "roic", "forward_pe", "analyst_conviction", "institutional_ownership", "insider_activity", "momentum", "chart_health"]
+    available = sum(m.get(k) is not None for k in scoring_keys)
 
     st.divider()
     st.subheader(f"{result['company']} ({symbol})")
@@ -664,7 +868,7 @@ if (run or force) and symbol:
         ("Net Margin", m["net_margin"], "%"),
         ("ROIC / Capital Efficiency", m["roic"], "%"),
         ("Forward P/E", m["forward_pe"], "x"),
-        ("Analyst Upside", m["analyst_upside"], "%"),
+        ("Analyst Conviction", m["analyst_conviction"], "/100"),
         ("Institutional Ownership", m["institutional_ownership"], "%"),
         ("Insider Activity", m["insider_activity"], "/5"),
         ("12M Momentum", m["momentum"], "%"),
@@ -695,7 +899,7 @@ if (run or force) and symbol:
     if m["revenue_growth"] is not None and m["revenue_growth"] >= 15: strengths.append("Healthy top-line growth")
     if m["net_margin"] is not None and m["net_margin"] >= 20: strengths.append("High profitability")
     if m["roic"] is not None and m["roic"] >= 15: strengths.append("Strong capital efficiency")
-    if m["analyst_upside"] is not None and m["analyst_upside"] >= 15: strengths.append("Positive analyst implied upside")
+    if m["analyst_upside"] is not None and (result["analyst_count"] or 0) >= 8 and m["analyst_upside"] >= 15: strengths.append("Strong analyst target upside with broad coverage")
     if m["institutional_ownership"] is not None and m["institutional_ownership"] >= 65: strengths.append("High institutional ownership")
     if m["momentum"] is not None and m["momentum"] >= 15: strengths.append("Strong 12-month momentum")
     if m["chart_health"] is not None and m["chart_health"] >= 75: strengths.append("Healthy price chart and trend")
@@ -703,7 +907,7 @@ if (run or force) and symbol:
     if m["forward_pe"] is not None and m["forward_pe"] > 40: risks.append("Elevated forward valuation")
     if m["eps_growth"] is not None and m["eps_growth"] < 5: risks.append("Weak/negative EPS growth")
     if m["net_margin"] is not None and m["net_margin"] < 5: risks.append("Thin profitability")
-    if m["analyst_upside"] is not None and m["analyst_upside"] < 0: risks.append("Mean analyst target below current price")
+    if m["analyst_upside"] is not None and (result["analyst_count"] or 0) >= 8 and m["analyst_upside"] < 0: risks.append("Mean analyst target below current price")
     if m["insider_activity"] is not None and m["insider_activity"] < -2: risks.append("Recent reported insider activity skews negative")
     if m["momentum"] is not None and m["momentum"] < -10: risks.append("Negative 12-month momentum")
     if m["chart_health"] is not None and m["chart_health"] < 40: risks.append("Weak chart health / trend")
@@ -728,7 +932,7 @@ if (run or force) and symbol:
     with st.expander("Methodology & data caveats"):
         st.write(
             "The score is a transparent weighted model, not a prediction model. ROIC is an approximation calculated from the latest statements when the needed rows are available. "
-            "Institutional ownership is a current ownership percentage, not hedge-fund flow. Insider activity is a rough signal from reported transactions. Analyst upside uses the mean analyst target versus current price. "
+            "Institutional ownership is a current ownership percentage, not hedge-fund flow. Insider activity is a rough signal from reported transactions. Analyst Conviction combines mean-target upside, analyst count, and consensus rating, and requires at least 8 covering analysts. "
             "Chart Health combines the current price versus the 50-day and 200-day moving averages, the 50/200-day trend relationship, 3-month momentum, and distance from the 52-week high. "
             "Yahoo/yfinance fields can be delayed, missing, or defined differently by issuer."
         )
@@ -744,5 +948,64 @@ else:
     st.markdown("### Try it")
     st.write("Enter **AVGO**, **GOOGL**, **META**, **AMZN**, or another U.S.-listed ticker and click **Analyze Live**.")
 
+
+
 st.divider()
-st.caption("Version 0.5.2 — 10-factor Conviction Score with Chart Health + 7/10 minimum leaderboard coverage + quarter-start movers/fallers snapshots (Jan 1 / Apr 1 / Jul 1 / Oct 1).")
+st.markdown("## 🧺 ETF Leaderboard")
+st.caption("A beginner-friendly way to compare popular ETFs. **YTD and 1Y are total returns; 3Y, 5Y and 10Y are annualized CAGR.** Leveraged ETFs are excluded by default.")
+
+etf_c1, etf_c2, etf_c3 = st.columns([1.2, 1.2, 1])
+with etf_c1:
+    etf_period = st.selectbox("Performance period", ["YTD", "1Y", "3Y CAGR", "5Y CAGR", "10Y CAGR"], index=3)
+with etf_c2:
+    etf_categories = ["All"] + sorted({r[2] for r in ETF_UNIVERSE if not r[3]})
+    etf_category = st.selectbox("ETF type", etf_categories, index=0)
+with etf_c3:
+    include_leveraged = st.toggle("Include leveraged ETFs", value=False, help="Off by default because leveraged funds can distort beginner-oriented rankings.")
+
+eligible_etfs = [r for r in ETF_UNIVERSE if (include_leveraged or not r[3]) and (etf_category == "All" or r[2] == etf_category)]
+if st.button("Refresh ETF Rankings", use_container_width=True):
+    with st.spinner(f"Comparing {len(eligible_etfs)} ETFs…"):
+        st.session_state.etf_df = scan_etfs(eligible_etfs)
+
+if "etf_df" not in st.session_state:
+    st.session_state.etf_df = pd.DataFrame()
+
+etf_df = st.session_state.etf_df
+etf_perf_tab, etf_all_tab = st.tabs(["🏁 Top Performance", "⭐ Best All-Around"])
+
+with etf_perf_tab:
+    if etf_df.empty:
+        st.info("Choose a period/category and click **Refresh ETF Rankings**.")
+    else:
+        period_key = {"YTD":"ytd", "1Y":"1Y", "3Y CAGR":"3Y", "5Y CAGR":"5Y", "10Y CAGR":"10Y"}[etf_period]
+        ranked = etf_df.dropna(subset=[period_key]).sort_values(period_key, ascending=False).head(10).copy()
+        if ranked.empty:
+            st.info("Not enough history was available for this selection.")
+        else:
+            ranked.insert(0, "Rank", range(1, len(ranked)+1))
+            ranked["Return"] = ranked[period_key].map(lambda x: f"{x:+.1f}%")
+            ranked["Expense Ratio"] = ranked["expense_ratio"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.2f}%")
+            st.dataframe(ranked[["Rank","ticker","name","category","Return","Expense Ratio"]], use_container_width=True, hide_index=True)
+            st.caption("Performance is based on adjusted market-price history and does not guarantee future results.")
+
+with etf_all_tab:
+    st.caption("Balances long-term returns with volatility, drawdown, fees, fund size and liquidity. This is a research shortcut—not a recommendation.")
+    if etf_df.empty:
+        st.info("Refresh ETF Rankings first.")
+    else:
+        aa = etf_df.dropna(subset=["all_around"]).sort_values("all_around", ascending=False).head(10).copy()
+        if aa.empty:
+            st.info("Not enough data was available to calculate all-around scores.")
+        else:
+            aa.insert(0, "Rank", range(1, len(aa)+1))
+            aa["ETF Score"] = aa["all_around"].map(lambda x: f"{x:.1f}/100")
+            aa["5Y CAGR"] = aa["5Y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
+            aa["10Y CAGR"] = aa["10Y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
+            aa["5Y Max DD"] = aa["max_drawdown_5y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
+            aa["Expense"] = aa["expense_ratio"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.2f}%")
+            st.dataframe(aa[["Rank","ticker","name","category","ETF Score","5Y CAGR","10Y CAGR","5Y Max DD","Expense"]], use_container_width=True, hide_index=True)
+
+
+st.divider()
+st.caption("Version 0.6 — Stocks + ETF Leaderboards, 10-factor Conviction Score, Analyst Conviction, Chart Health, and quarter-start movers/fallers snapshots.")

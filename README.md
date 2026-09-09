@@ -1,32 +1,43 @@
-# Conviction AI v0.5.2
+# Conviction AI v0.6
 
-A beginner-friendly Streamlit stock research app that turns ten commonly used research signals into one transparent 0–100 Conviction Score.
+Beginner-friendly stock and ETF research dashboard built with Streamlit.
 
-## What changed in v0.5.2
+## What's new in v0.6
 
-- Added **Chart Health** as the 10th factor.
-- Chart Health uses price vs. 50-day SMA, price vs. 200-day SMA, 50/200-day trend, 3-month momentum, and distance from the 52-week high.
-- Leaderboards now require **at least 7/10 factors**.
-- Added beginner-facing homepage copy: **Stock research made simple** and **10 factors. One simple Conviction Score.**
-- Quarterly movers/fallers remain fixed to snapshots taken Jan 1, Apr 1, Jul 1, and Oct 1.
+### Stocks
+- 10-factor Conviction Score
+- Analyst Conviction replaces simple analyst upside
+- Analyst Conviction requires at least 8 covering analysts and blends:
+  - mean target upside vs current price
+  - analyst coverage count
+  - consensus recommendation strength
+- Analyst Opportunities leaderboard ranks the biggest current-price vs mean-target gaps, with a minimum 8-analyst filter
+- Chart Health remains one of the 10 stock factors
+- Stocks need at least 7/10 available factors to be leaderboard-eligible
+- Quarterly risers/fallers compare Jan 1 / Apr 1 / Jul 1 / Oct 1 snapshots
 
-## Files you need in GitHub
+### ETFs
+- Beginner-friendly ETF Leaderboard
+- Toggle between YTD, 1Y, 3Y CAGR, 5Y CAGR, and 10Y CAGR
+- Filter by ETF category
+- Leveraged ETFs excluded by default, with an optional toggle to include them
+- Best All-Around ETF score blends long-term return, volatility, max drawdown, expense ratio, fund size, and liquidity when those fields are available
 
-- `app.py`
-- `quarterly_snapshot.py`
-- `quarterly_scores.csv`
-- `requirements.txt`
-- `.github/workflows/quarterly-snapshot.yml`
+## Deploy on Streamlit Community Cloud
 
-The other Supabase files from older versions are not required for this no-database version.
+1. Upload all files in this folder to your GitHub repository.
+2. In Streamlit Community Cloud, deploy `app.py` from the repository.
+3. Streamlit will install the packages in `requirements.txt`.
+4. Existing Streamlit deployments normally redeploy automatically after the GitHub commit.
 
-## Run locally
+## Quarterly snapshots
 
-```bash
-pip install -r requirements.txt
-streamlit run app.py
-```
+The included GitHub Actions workflow is designed to run the stock snapshot process at the start of each quarter. The generated `quarterly_scores.csv` powers the Quarterly Risers and Quarterly Fallers tabs.
 
-## Data caveat
+## Data note
 
-The MVP uses Yahoo Finance through `yfinance`. Some fields can be missing or rate-limited. Stocks with fewer than 7 of the 10 factors are excluded from leaderboards rather than receiving a misleading low score.
+This MVP uses Yahoo Finance through `yfinance`. Free public data can be delayed, incomplete, or temporarily unavailable. The app excludes under-covered stocks from ranking rather than treating missing fields as zero. Before charging users, a licensed production market-data provider would be preferable.
+
+## Important
+
+Conviction AI is a research tool, not personalized investment advice.
