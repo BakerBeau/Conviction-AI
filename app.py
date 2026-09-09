@@ -560,7 +560,7 @@ def scan_universe(tickers, workers=8, progress_callback=None):
 
 
 def hidden_gem_score(row):
-    """Return an underfollowed-quality score for a qualifying S&P 500 company, else None."""
+    """Score established, relatively underfollowed S&P 500 companies without requiring a perfect checklist."""
     score = clean_num(row.get("score"))
     coverage = clean_num(row.get("coverage"))
     market_cap = clean_num(row.get("market_cap"))
@@ -572,40 +572,52 @@ def hidden_gem_score(row):
     upside = clean_num(row.get("analyst_upside"))
     insider = clean_num(row.get("insider_activity"))
 
-    # Quality first: a Hidden Gem must already look investable before we reward being underfollowed.
-    if score is None or score < 70 or coverage is None or coverage < 7:
+    # Hard floor: enough real data and enough overall quality to be worth discovering.
+    if score is None or score < 67 or coverage is None or coverage < 7:
         return None
-    if market_cap is None or not (2e9 <= market_cap <= 150e9):
+    if market_cap is None or not (2e9 <= market_cap <= 250e9):
         return None
-    if analysts is None or not (8 <= analysts <= 20):
+    if analysts is None or not (6 <= analysts <= 30):
         return None
-    if chart is None or chart < 60:
-        return None
-    if eps is not None and eps < 0:
-        return None
-    if revenue is not None and revenue < 0:
-        return None
-    if not ((eps is not None and eps >= 10) or (revenue is not None and revenue >= 10)):
-        return None
-    if inst is not None and inst < 35:
-        return None
-    if upside is not None and upside < 5:
-        return None
-    if insider is not None and insider < -2.5:
+    if chart is None or chart < 55:
         return None
 
-    # Underfollowed score: fewer analysts + smaller (but still established) market cap.
-    analyst_underfollowed = normalize(analysts, 8, 20, reverse=True)
-    cap_underfollowed = normalize(math.log10(market_cap), math.log10(2e9), math.log10(150e9), reverse=True)
-    quality = normalize(score, 70, 90)
-    chart_part = normalize(chart, 60, 90)
+    # Growth should be healthy, but we no longer require both growth lines to be perfect.
+    growth_values = [x for x in (eps, revenue) if x is not None]
+    if not growth_values or max(growth_values) < 5:
+        return None
+    if len(growth_values) == 2 and eps < -5 and revenue < -5:
+        return None
+
+    # Avoid clear red flags while allowing neutral / missing signals.
+    if inst is not None and inst < 25:
+        return None
+    if upside is not None and upside < 0:
+        return None
+    if insider is not None and insider < -5:
+        return None
+
+    # Rank rather than over-filter: quality + underfollowed + technical health + upside/growth.
+    analyst_underfollowed = normalize(analysts, 6, 30, reverse=True)
+    cap_underfollowed = normalize(math.log10(market_cap), math.log10(2e9), math.log10(250e9), reverse=True)
+    quality = normalize(score, 67, 90)
+    chart_part = normalize(chart, 55, 90)
+    growth_best = max(growth_values) if growth_values else None
+    growth_part = normalize(growth_best, 5, 30) if growth_best is not None else None
+    upside_part = normalize(upside, 0, 30) if upside is not None else None
+
     parts = [
-        (analyst_underfollowed, 0.30),
-        (cap_underfollowed, 0.25),
         (quality, 0.30),
-        (chart_part, 0.15),
+        (analyst_underfollowed, 0.20),
+        (cap_underfollowed, 0.18),
+        (chart_part, 0.14),
+        (growth_part, 0.10),
+        (upside_part, 0.08),
     ]
-    return round(sum(v*w for v, w in parts if v is not None) / sum(w for v, w in parts if v is not None), 1)
+    usable = [(v, w) for v, w in parts if v is not None]
+    if not usable:
+        return None
+    return round(sum(v*w for v, w in usable) / sum(w for v, w in usable), 1)
 
 
 def hidden_gem_reasons(row):
@@ -643,7 +655,7 @@ def pick_hidden_gem_from_df(df):
     return row, pool.sort_values("hidden_gem_score", ascending=False)
 
 
-def lightweight_hidden_gem_scan(sample_size=60, workers=5, progress_callback=None):
+def lightweight_hidden_gem_scan(sample_size=120, workers=6, progress_callback=None):
     sp500 = build_market_universe("S&P 500")
     tickers = sp500["ticker"].dropna().astype(str).tolist()
     if not tickers:
@@ -1093,16 +1105,16 @@ with main_stocks:
 
         with st.expander("What counts as a Hidden Gem?"):
             st.markdown(
-                "A company must have a **70+ Conviction Score**, at least **7/10 data factors**, roughly **$2B–$150B market cap**, "
-                "**8–20 covering analysts**, **60+ chart health**, positive growth, and no major negative institutional/insider signal. "
+                "A company must have about a **67+ Conviction Score**, at least **7/10 data factors**, roughly **$2B–$250B market cap**, "
+                "**6–30 covering analysts**, **55+ chart health**, at least one healthy growth signal, and no major negative institutional/insider signal. "
                 "The final pick is randomized from the qualifying pool. Low trading volume by itself is **not** considered a positive signal."
             )
 
         c1, c2 = st.columns([2, 1])
         with c1:
-            st.caption("For a quick discovery, Conviction AI checks a random slice of the S&P 500 and looks only for companies that pass the quality screen.")
+            st.caption("For a quick discovery, Conviction AI checks a larger random slice of the S&P 500, applies a quality floor, then ranks the survivors by quality + how underfollowed they are.")
         with c2:
-            sample_size = st.selectbox("Discovery depth", [40, 60, 80], index=1, key="hidden_sample_size")
+            sample_size = st.selectbox("Discovery depth", [80, 120, 160], index=1, key="hidden_sample_size")
 
         find_gem = st.button("💎 Find a Hidden Gem", type="primary", use_container_width=True, key="hidden_find")
 
@@ -1110,7 +1122,7 @@ with main_stocks:
             progress = st.progress(0.0, text=f"Checking 0 / {sample_size} stocks…")
             def update_hidden_progress(done, total):
                 progress.progress(done / max(total, 1), text=f"Checking {done} / {total} stocks…")
-            scan_df = lightweight_hidden_gem_scan(sample_size=sample_size, workers=5, progress_callback=update_hidden_progress)
+            scan_df = lightweight_hidden_gem_scan(sample_size=sample_size, workers=6, progress_callback=update_hidden_progress)
             progress.empty()
             gem, pool = pick_hidden_gem_from_df(scan_df)
             st.session_state.hidden_gem_scan = scan_df
@@ -1150,7 +1162,7 @@ with main_stocks:
             if st.session_state.get("hidden_open_ticker") == gem["ticker"]:
                 render_stock_result(gem["ticker"], force=False)
         elif find_gem:
-            st.info("No stock in this random sample passed every Hidden Gem rule. Tap **Find a Hidden Gem** again for a fresh sample.")
+            st.info("No stock in this random sample cleared the Hidden Gem quality floor. Tap **Find a Hidden Gem** again for a fresh sample.")
         else:
             st.info("Tap **Find a Hidden Gem** and Conviction AI will look for a quality company you may not already be watching.")
 

@@ -1,8 +1,8 @@
-# Conviction AI v0.6.4
+# Conviction AI v0.6.5
 
 Beginner-friendly stock and ETF research in one Streamlit app.
 
-## New in v0.6.4 — Hidden Gems
+## New in v0.6.5 — Hidden Gems
 
 The Stocks section now includes a final **Hidden Gems** tab.
 
@@ -50,3 +50,7 @@ Upload these files to the existing GitHub repository and commit the changes. Str
 ## Disclaimer
 
 For research and educational purposes only. Not investment advice. Live market data may be delayed, incomplete, or unavailable.
+
+
+## Hidden Gems v0.6.5
+The Hidden Gems screen now uses a broader quality floor and a ranking model instead of a narrow perfect-checklist filter. Default discovery depth is 120 randomly selected S&P 500 companies, with 80/120/160 options.
