@@ -1537,6 +1537,38 @@ DCA_MODELS = {
 }
 
 
+@st.cache_data(ttl=21600, show_spinner=False)
+def historical_cagr_5y(ticker):
+    """Return trailing CAGR using up to 5 years of adjusted price history.
+
+    For newer securities, annualize the longest available history once at least
+    ~1 year is available. Returns (cagr_pct, years_used).
+    """
+    ticker = (ticker or "").upper().strip()
+    if not ticker:
+        return None, None
+    try:
+        hist = yf.Ticker(ticker).history(period="5y", auto_adjust=True)
+    except Exception:
+        return None, None
+    if hist is None or hist.empty or "Close" not in hist:
+        return None, None
+    closes = hist["Close"].dropna()
+    if len(closes) < 2:
+        return None, None
+    start_price = clean_num(closes.iloc[0])
+    end_price = clean_num(closes.iloc[-1])
+    if not start_price or start_price <= 0 or end_price is None:
+        return None, None
+    start_dt = pd.Timestamp(closes.index[0]).tz_localize(None)
+    end_dt = pd.Timestamp(closes.index[-1]).tz_localize(None)
+    years_used = max((end_dt - start_dt).days / 365.25, 0)
+    if years_used < 0.9:
+        return None, years_used
+    cagr = ((end_price / start_price) ** (1 / years_used) - 1) * 100
+    return float(cagr), float(years_used)
+
+
 def project_dca(starting_balance, daily_amount, annual_rate_pct, years):
     """Project a trading-day DCA using 252 market days per year, converted to monthly-equivalent contributions and monthly compounding."""
     months = int(years * 12)
@@ -1550,8 +1582,8 @@ def project_dca(starting_balance, daily_amount, annual_rate_pct, years):
 
 def custom_dca_fallback_take(daily_amount, blended_cagr, rows, horizon_value):
     tickers = ", ".join(r["Ticker"] for r in rows if r["Ticker"])
-    first = f"This model puts ${daily_amount:.2f} per trading day across {tickers or 'your selected investments'} and assumes a blended {blended_cagr:.1f}% annual return."
-    second = f"At that assumption, the 20-year projection is about ${horizon_value:,.0f}, but actual returns will vary and can be materially lower or higher."
+    first = f"This model puts ${daily_amount:.2f} per trading day across {tickers or 'your selected investments'} and uses a dollar-weighted {blended_cagr:.1f}% expected annual return."
+    second = f"At those assumptions, the 20-year projection is about ${horizon_value:,.0f}; historical CAGR is only a starting reference and future returns can be materially lower or higher."
     return first + " " + second
 
 
@@ -1599,68 +1631,99 @@ with main_dca:
 
     with custom_tab:
         st.markdown("### Build your own DCA model")
-        st.caption("Add up to 5 stocks or ETFs. The expected CAGR is **your assumption**, not a forecast from Conviction AI.")
+        st.caption("Add up to 5 stocks or ETFs. Type a ticker and Conviction AI will pre-fill its trailing historical CAGR (up to 5 years) as a starting assumption. You can edit it.")
 
-        a1, a2, a3 = st.columns(3)
+        a1, a2 = st.columns(2)
         with a1:
-            custom_daily = st.number_input("Total amount per trading day", min_value=1.0, max_value=5000.0, value=10.0, step=1.0, key="custom_dca_daily")
-        with a2:
             starting_balance = st.number_input("Starting balance", min_value=0.0, max_value=10000000.0, value=0.0, step=100.0, key="custom_dca_start")
-        with a3:
+        with a2:
             investment_count = st.selectbox("Number of investments", [1,2,3,4,5], index=2, key="custom_dca_count")
 
         defaults = [
-            ("VOO", 60.0, 9.0),
-            ("VOOG", 25.0, 10.0),
-            ("SMH", 15.0, 11.0),
-            ("", 0.0, 9.0),
-            ("", 0.0, 9.0),
+            ("VOO", 6.0),
+            ("VOOG", 3.0),
+            ("SMH", 1.0),
+            ("", 0.0),
+            ("", 0.0),
         ]
         custom_rows=[]
         st.markdown("#### Your investments")
         for i in range(investment_count):
-            c1, c2, c3 = st.columns([1.1, 1, 1])
+            c1, c2, c3 = st.columns([1.05, 1, 1.15])
             with c1:
                 ticker = st.text_input(f"Ticker {i+1}", value=defaults[i][0], key=f"custom_ticker_{i}").upper().strip()
+            hist_cagr, hist_years = historical_cagr_5y(ticker) if ticker else (None, None)
             with c2:
-                weight = st.number_input(f"Weight % {i+1}", min_value=0.0, max_value=100.0, value=defaults[i][1], step=1.0, key=f"custom_weight_{i}")
+                dollars = st.number_input(
+                    f"$ per trading day {i+1}",
+                    min_value=0.0,
+                    max_value=5000.0,
+                    value=defaults[i][1],
+                    step=1.0,
+                    key=f"custom_dollars_{i}",
+                )
             with c3:
-                cagr = st.number_input(f"Expected CAGR % {i+1}", min_value=-20.0, max_value=40.0, value=defaults[i][2], step=0.5, key=f"custom_cagr_{i}")
-            custom_rows.append({"Ticker": ticker, "Weight": weight, "Expected CAGR": cagr})
+                default_cagr = round(hist_cagr, 1) if hist_cagr is not None else 8.0
+                cagr_key = f"custom_cagr_{i}_{ticker or 'blank'}"
+                cagr = st.number_input(
+                    f"Expected CAGR % {i+1}",
+                    min_value=-20.0,
+                    max_value=50.0,
+                    value=float(max(-20.0, min(50.0, default_cagr))),
+                    step=0.5,
+                    key=cagr_key,
+                    help="Pre-filled from trailing adjusted-price history when available. Edit this assumption if you want a more conservative or aggressive projection.",
+                )
+            hist_label = None
+            if hist_cagr is not None and hist_years is not None:
+                hist_label = f"{hist_cagr:.1f}% over {hist_years:.1f} years"
+                st.caption(f"**{ticker} historical CAGR:** {hist_label}")
+            elif ticker:
+                st.caption(f"**{ticker}:** not enough price history to calculate a reliable historical CAGR.")
+            custom_rows.append({"Ticker": ticker, "Daily Dollars": dollars, "Expected CAGR": cagr, "Historical CAGR": hist_cagr, "History Years": hist_years})
 
-        total_weight = sum(r["Weight"] for r in custom_rows)
-        if abs(total_weight - 100) > 0.01:
-            st.warning(f"Your weights add up to **{total_weight:.1f}%**. Make them total 100% to calculate the model.")
+        active_rows = [r for r in custom_rows if r["Ticker"] and r["Daily Dollars"] > 0]
+        total_daily = sum(r["Daily Dollars"] for r in active_rows)
+
+        if not active_rows or total_daily <= 0:
+            st.warning("Add at least one ticker with a dollar amount above $0 per trading day to calculate the model.")
         else:
-            blended_cagr = sum(r["Weight"] * r["Expected CAGR"] for r in custom_rows) / 100
-            annual_contribution = custom_daily * 252
-            st.caption("Projection assumes 252 trading days per year.")
+            blended_cagr = sum(r["Daily Dollars"] * r["Expected CAGR"] for r in active_rows) / total_daily
+            annual_contribution = total_daily * 252
+            st.caption("Projection assumes 252 trading days per year. Dollar amounts automatically determine each investment's portfolio weight.")
             c1, c2, c3 = st.columns(3)
-            c1.metric("Blended expected CAGR", f"{blended_cagr:.2f}%")
-            c2.metric("Approx. yearly contributions", f"${annual_contribution:,.0f}")
-            c3.metric("Starting balance", f"${starting_balance:,.0f}")
+            c1.metric("Total per trading day", f"${total_daily:,.2f}")
+            c2.metric("Dollar-weighted expected CAGR", f"{blended_cagr:.2f}%")
+            c3.metric("Approx. yearly contributions", f"${annual_contribution:,.0f}")
 
             allocation_rows=[]
-            for r in custom_rows:
+            for r in active_rows:
+                weight = r["Daily Dollars"] / total_daily * 100
+                hist_text = "N/A" if r["Historical CAGR"] is None else f"{r['Historical CAGR']:.1f}%"
                 allocation_rows.append({
-                    "Ticker": r["Ticker"] or "—",
-                    "Weight": f"{r['Weight']:.0f}%",
+                    "Ticker": r["Ticker"],
+                    "Per Day": f"${r['Daily Dollars']:.2f}",
+                    "Auto Weight": f"{weight:.1f}%",
+                    "Historical CAGR": hist_text,
                     "Expected CAGR": f"{r['Expected CAGR']:.1f}%",
-                    "Per Day": f"${custom_daily*r['Weight']/100:.2f}",
-                    "Per Year": f"${annual_contribution*r['Weight']/100:,.0f}",
+                    "Per Year": f"${r['Daily Dollars']*252:,.0f}",
                 })
             st.dataframe(pd.DataFrame(allocation_rows), use_container_width=True, hide_index=True)
 
             horizons = [5, 10, 15, 20, 25, 30]
             projection_rows=[]
             for years in horizons:
-                value = project_dca(starting_balance, custom_daily, blended_cagr, years)
+                portfolio_value = 0.0
+                for r in active_rows:
+                    share = r["Daily Dollars"] / total_daily
+                    allocated_start = starting_balance * share
+                    portfolio_value += project_dca(allocated_start, r["Daily Dollars"], r["Expected CAGR"], years)
                 contributed = starting_balance + annual_contribution * years
                 projection_rows.append({
                     "Years": years,
-                    "Projected Value": value,
+                    "Projected Value": portfolio_value,
                     "Total Contributed": contributed,
-                    "Estimated Growth": value - contributed,
+                    "Estimated Growth": portfolio_value - contributed,
                 })
             proj = pd.DataFrame(projection_rows)
             display_proj = proj.copy()
@@ -1674,17 +1737,21 @@ with main_dca:
 
             twenty_year = float(proj.loc[proj["Years"] == 20, "Projected Value"].iloc[0])
             custom_facts = "\n".join([
-                f"Trading-day contribution: ${custom_daily:.2f}",
+                f"Total trading-day contribution: ${total_daily:.2f}",
                 f"Starting balance: ${starting_balance:.0f}",
-                f"Blended expected CAGR assumption: {blended_cagr:.2f}%",
-                "Holdings: " + "; ".join(f"{r['Ticker']} {r['Weight']:.0f}% at assumed {r['Expected CAGR']:.1f}% CAGR" for r in custom_rows if r['Ticker']),
+                f"Dollar-weighted expected CAGR assumption: {blended_cagr:.2f}%",
+                "Holdings: " + "; ".join(
+                    f"{r['Ticker']} ${r['Daily Dollars']:.2f}/day at {r['Expected CAGR']:.1f}% expected CAGR"
+                    + (f" (historical {r['Historical CAGR']:.1f}% over {r['History Years']:.1f}y)" if r['Historical CAGR'] is not None and r['History Years'] is not None else "")
+                    for r in active_rows
+                ),
                 f"20-year projected value: ${twenty_year:.0f}",
             ])
             custom_ai = two_sentence_ai_take("custom DCA projection", custom_facts)
             st.markdown("### ✨ Quick take")
-            st.write(custom_ai or custom_dca_fallback_take(custom_daily, blended_cagr, custom_rows, twenty_year))
+            st.write(custom_ai or custom_dca_fallback_take(total_daily, blended_cagr, active_rows, twenty_year))
 
-            st.caption("Projection assumes steady monthly-equivalent contributions and a constant annual return. It ignores taxes, fees, inflation, and changing market returns.")
+            st.caption("Historical CAGR is based on adjusted price history and is not a forecast. Projection assumes steady monthly-equivalent contributions and constant annual returns; it ignores taxes, fees, inflation, and changing market returns.")
 
     with st.expander("What does DCA mean?"):
         st.write("Dollar-cost averaging means investing a fixed dollar amount on a regular schedule instead of trying to guess the perfect day to buy. It can make a long-term plan easier to stick with, but it does not prevent losses.")

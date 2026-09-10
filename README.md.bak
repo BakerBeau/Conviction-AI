@@ -49,11 +49,3 @@ Market data is sourced through `yfinance` and may be delayed, incomplete, or una
 
 ## DCA convention
 Daily DCA inputs are treated as trading-day contributions using 252 trading days per year. For example, $10 per trading day is modeled as approximately $2,520 per year.
-
-
-## v0.7.0 custom DCA updates
-- Build Your Own DCA now uses **dollar amounts per trading day** instead of manual percentage weights.
-- Portfolio weights are calculated automatically from those dollar amounts.
-- Entering a ticker pre-fills **Expected CAGR** from its trailing adjusted-price historical CAGR (up to 5 years) when enough history exists.
-- Users can override the historical CAGR assumption.
-- Multi-holding projections compound each holding using its own expected CAGR and sum the results.
