@@ -852,6 +852,11 @@ def hidden_gem_score(row):
     if chart is None or chart < 52:
         return None
 
+    # Materially falling forward estimates are not a Hidden Gem. Missing revisions are allowed; genuinely falling revisions are not.
+    revision_pct = clean_num(row.get("estimate_revision_pct"))
+    if revision_pct is not None and revision_pct < -5:
+        return None
+
     growth_values = [x for x in (eps, revenue) if x is not None]
     if not growth_values or max(growth_values) < 4:
         return None
@@ -860,6 +865,18 @@ def hidden_gem_score(row):
     if inst is not None and inst < 20:
         return None
     if insider is not None and insider < -5:
+        return None
+
+    # Distinguish normal quality compounders from improving turnarounds.
+    fwd_growth = clean_num(row.get("forward_eps_growth"))
+    quality_growth_ok = (fwd_growth is not None and fwd_growth > 0) or (revenue is not None and revenue >= 5)
+    turnaround_ok = (
+        fwd_growth is not None and fwd_growth <= 0
+        and revision_pct is not None and revision_pct >= 3
+        and chart >= 70
+        and (clean_num(row.get("forward_pe")) is None or clean_num(row.get("forward_pe")) <= 35)
+    )
+    if not quality_growth_ok and not turnaround_ok:
         return None
 
     # 25% quality; 20% estimate revisions; 20% value vs growth; 15% chart; 10% institutional support; 10% underfollowed.
@@ -892,6 +909,19 @@ def hidden_gem_score(row):
         return None
     result = sum(v*w for v, w in usable) / sum(w for v, w in usable)
     return round(max(0.0, min(100.0, result)), 1)
+
+
+def hidden_gem_type(row):
+    """Classify the reason a qualifying name is interesting without pretending every setup is the same."""
+    fwd = clean_num(row.get("forward_eps_growth"))
+    rev = clean_num(row.get("revenue_growth"))
+    revision = clean_num(row.get("estimate_revision_pct"))
+    chart = clean_num(row.get("chart_health"))
+    if fwd is not None and fwd <= 0 and revision is not None and revision >= 3 and (chart or 0) >= 70:
+        return "Turnaround Gem"
+    if (fwd is not None and fwd > 0) or (rev is not None and rev >= 5):
+        return "Quality Gem"
+    return "Discovery Candidate"
 
 
 def hidden_gem_reasons(row):
@@ -935,7 +965,7 @@ def pick_hidden_gem_from_df(df):
     work = add_sector_relative_hidden_features(df.copy())
     work["hidden_gem_score"] = work.apply(hidden_gem_score, axis=1)
     pool = work.dropna(subset=["hidden_gem_score"]).copy()
-    pool = pool[pool["hidden_gem_score"] >= 60].copy()
+    pool = pool[pool["hidden_gem_score"] >= 65].copy()
     if pool.empty:
         return None, pool
 
@@ -1359,7 +1389,24 @@ def _relative_momentum_accel(row, benchmark):
     if not parts:
         return None
     # Gentle winsorization only for pathological prints; public display remains differentiated.
-    return _cap(sum(parts) / len(parts), -20, 20)
+    return _cap(sum(parts) / len(parts), -30, 30)
+
+
+def _momentum_accel_label(value):
+    v = clean_num(value)
+    if v is None:
+        return "N/A"
+    if v < 0:
+        return "Lagging"
+    if v < 3:
+        return "Mild"
+    if v < 7:
+        return "Improving"
+    if v < 12:
+        return "Strong"
+    if v < 18:
+        return "Breakout"
+    return "Exceptional"
 
 
 def _why_emerging(row, qoq_change=None):
@@ -1424,7 +1471,7 @@ def emerging_leader_score(row, qoq_change=None):
 
     # Smooth curves avoid the old +25 ceiling pile-up and keep 90+ rare.
     accel_score = None if momentum_accel is None else curve_score(momentum_accel, [
-        (-10, 15), (-5, 30), (0, 48), (2, 56), (5, 66), (8, 75), (12, 84), (16, 90), (20, 94)
+        (-12, 15), (-7, 28), (-3, 40), (0, 48), (2, 54), (5, 62), (8, 70), (12, 79), (16, 85), (22, 90), (30, 94)
     ])
     qoq_score = None if qoq_change is None else curve_score(_cap(qoq_change, -8, 18), [
         (-5, 20), (0, 48), (2, 60), (5, 74), (8, 84), (12, 91), (18, 95)
@@ -1657,10 +1704,11 @@ with main_stocks:
                 top10.insert(0, "Rank", range(1, len(top10) + 1))
                 top10["Score"] = top10["score"].map(lambda x: f"{x:.1f}")
                 top10["Coverage"] = top10["coverage"].map(lambda x: f"{int(x)}/10")
-                top10["1Y Return"] = top10["one_year_return"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
+                top10["EPS Trend"] = top10["eps_growth"].map(_growth_trend_label)
+                top10["Value vs Growth"] = top10["value_vs_growth_score"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
                 top10["Chart Health"] = top10["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
                 st.dataframe(
-                    top10[["Rank", "ticker", "company", "Score", "Coverage", "1Y Return", "Chart Health"]],
+                    top10[["Rank", "ticker", "company", "Score", "Coverage", "EPS Trend", "Value vs Growth", "Chart Health"]],
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -1728,11 +1776,11 @@ with main_stocks:
             top.insert(0, "Rank", range(1, len(top)+1))
             top["Emerging"] = top["Emerging Score"].map(lambda x: f"{x:.1f}")
             top["Conviction"] = top["score"].map(lambda x: f"{x:.1f}")
-            top["Momentum Accel"] = top["Momentum Accel"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f} vs S&P")
+            top["Momentum Accel"] = top["Momentum Accel"].map(_momentum_accel_label)
             top["QoQ"] = top["QoQ Change"].map(lambda x: "—" if pd.isna(x) else f"{x:+.1f}")
             top["Chart"] = top["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
             st.dataframe(top[["Rank","ticker","company","Emerging","Conviction","Momentum Accel","QoQ","EPS Trend","Revenue Trend","Chart","Why Emerging?"]], use_container_width=True, hide_index=True)
-            st.caption("Growth is shown as a normalized trend label instead of noisy raw spikes. Momentum acceleration is measured relative to the S&P 500, and each name must show at least two independent improvement signals.")
+            st.caption("Growth and momentum are shown as normalized labels instead of noisy capped numbers. Momentum acceleration is measured relative to the S&P 500, and each name must show at least two independent improvement signals.")
 
             with st.expander("How Emerging Leaders is different"):
                 st.markdown(
@@ -1748,9 +1796,9 @@ with main_stocks:
 
         with st.expander("What counts as a Hidden Gem?"):
             st.markdown(
-                "A company needs a solid quality floor, at least **7/10 data factors**, moderate analyst coverage, healthy growth and chart signals, and no obvious red flags. "
+                "A company needs a solid quality floor, at least **7/10 data factors**, moderate analyst coverage, and no obvious red flags. **Quality Gems** need positive forward EPS growth or solid revenue growth; **Turnaround Gems** can have declining forward EPS only when estimate revisions are improving, the chart is healthy, and valuation is reasonable. "
                 "Hidden Gem scoring then emphasizes **sector-relative quality, EPS estimate revisions, value vs growth, chart health, institutional support, and underfollowedness**. "
-                "Only names with a **60+ Hidden Gem Score** enter the randomizer, and the pool is capped at **two names per sector** so one industry cannot dominate."
+                "Only names with a **65+ Hidden Gem Score** enter the randomizer, and the pool is capped at **two names per sector** so one industry cannot dominate."
             )
 
         c1, c2 = st.columns([2, 1])
@@ -1778,7 +1826,7 @@ with main_stocks:
         if gem:
             st.divider()
             st.markdown(f"## {gem['ticker']} — {gem['company']}")
-            st.caption("Randomly selected from companies that passed the Hidden Gem screen. Discovery only — not a recommendation.")
+            st.caption(f"**{hidden_gem_type(gem)}** · Randomly selected from companies that passed the Hidden Gem screen. Discovery only — not a recommendation.")
             a, b, c, d = st.columns(4)
             a.metric("Conviction", f"{gem['score']:.1f}/100")
             b.metric("Hidden Gem Score", f"{gem['hidden_gem_score']:.1f}/100")
@@ -1797,7 +1845,13 @@ with main_stocks:
                 rev_display = "Stable"
             c.metric("Estimate Revisions", rev_display)
             vg = clean_num(gem.get("value_vs_growth_score"))
-            d.metric("Value vs Growth", "N/A" if vg is None else f"{vg:.0f}/100")
+            
+            if vg is None:
+                fwd = clean_num(gem.get("forward_eps_growth"))
+                vg_display = "Forward EPS declining" if fwd is not None and fwd <= 0 else "Insufficient data"
+            else:
+                vg_display = f"{vg:.0f}/100"
+            d.metric("Value vs Growth", vg_display)
 
             st.markdown("### Why it surfaced")
             st.write("\n".join(f"• {x}" for x in hidden_gem_reasons(gem)))
@@ -1805,6 +1859,7 @@ with main_stocks:
             facts = "\n".join([
                 f"Ticker: {gem.get('ticker')}",
                 f"Company: {gem.get('company')}",
+                f"Gem type: {hidden_gem_type(gem)}",
                 f"Conviction Score: {clean_num(gem.get('score'))}",
                 f"Hidden Gem Score: {clean_num(gem.get('hidden_gem_score'))}",
                 f"EPS growth: {clean_num(gem.get('eps_growth'))}%",

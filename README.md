@@ -1,8 +1,8 @@
-# Conviction AI v0.7.5
+# Conviction AI v0.7.6
 
 Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 
-## What is new in v0.7.5
+## What is new in v0.7.6
 
 - Rebuilt **Hidden Gems** to reduce sector bias and stop financial/asset-management names from dominating discovery.
 - Hidden Gem quality is now partly **sector-relative**, so a company is compared with other companies in its own sector rather than only against universal thresholds.
@@ -76,8 +76,16 @@ Daily DCA inputs are treated as trading-day contributions using 252 trading days
 - Renames Recent Pace to Momentum Accel for clearer interpretation.
 
 
-## v0.7.5 Emerging Leaders display cleanup
+## v0.7.6 Emerging Leaders display cleanup
 - Raw extreme EPS/revenue spikes are hidden from the leaderboard and replaced with beginner-friendly trend labels.
 - Momentum acceleration is now relative to the S&P 500 and uses a smooth scoring curve instead of piling up at a hard +25 cap.
 - Added a concise **Why Emerging?** explanation for every candidate.
 - Preserves the v0.7.4 Hidden Gems sector-relative/revisions/value-vs-growth rebuild.
+
+
+## v0.7.6 discovery cleanup
+- Market Leaders no longer displays the unreliable 1Y return column; it shows EPS Trend, Value vs Growth, and Chart Health instead.
+- Emerging Leaders shows qualitative momentum-acceleration labels instead of capped +20-point values.
+- Hidden Gems now require a 65+ Hidden Gem Score and reject materially falling EPS estimate revisions (< -5%).
+- Hidden Gems are labeled **Quality Gem** or **Turnaround Gem** so positive-growth compounders are not mixed with improving-but-still-declining EPS stories.
+- Value vs Growth now explains when it is not applicable because forward EPS is declining.
