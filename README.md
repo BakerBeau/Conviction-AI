@@ -1,16 +1,33 @@
-# Conviction AI v0.6.6
+# Conviction AI v0.6.7
 
 Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 
-## What is new in v0.6.6
+## What is new in v0.6.7
 
-- Analyst data is de-emphasized in Market Leaders. It remains one of the 10 stock factors, while the price-target-gap table is now a secondary expandable view.
-- Top Stocks now highlights Chart Health instead of analyst upside.
-- ETF Compare lets users compare 2–5 ETFs side by side across YTD, 1Y, 3Y/5Y/10Y CAGR, expense ratio, volatility, and drawdown.
-- ETF filters use multiple tags, so a fund can appear in Growth, Large Cap, Technology-heavy, Core, etc. instead of being trapped in one category.
-- Expanded curated ETF universe so category filters return healthier lists.
-- New DCA Builder: choose a daily dollar amount, goal, and aggressiveness to see an educational ETF model allocation.
-- DCA presets emphasize a core + satellite structure and clearly label examples as educational, not personalized investment recommendations.
+- New **Emerging Leaders** stock-discovery tab between Market Leaders and Hidden Gems.
+- Emerging Leaders ranks stocks that may not be Top 10 yet but show a useful mix of Conviction Score, chart health, momentum, growth, institutional support, and quarter-to-quarter score improvement when history exists.
+- New optional **2-sentence AI Quick Take** for Hidden Gems.
+- New optional **2-sentence AI Quick Take** for DCA model allocations.
+- AI summaries are constrained to the facts already calculated by Conviction AI and are instructed not to invent facts or issue buy/sell commands.
+- If no OpenAI API key is configured, the app automatically shows a plain-English local fallback summary instead, so nothing breaks.
+
+## Turn on the AI summaries
+
+Do **not** put your API key in GitHub.
+
+In Streamlit Community Cloud, open your app settings and add this to **Secrets**:
+
+```toml
+OPENAI_API_KEY = "your_api_key_here"
+```
+
+Optional model override:
+
+```toml
+OPENAI_MODEL = "gpt-5-mini"
+```
+
+The app uses OpenAI's Responses API. AI output is cached for 24 hours for the same set of facts to reduce repeat API calls.
 
 ## Run locally
 
@@ -18,6 +35,8 @@ Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 pip install -r requirements.txt
 streamlit run app.py
 ```
+
+For local AI summaries, set `OPENAI_API_KEY` as an environment variable. `OPENAI_MODEL` is optional.
 
 ## Deploy
 

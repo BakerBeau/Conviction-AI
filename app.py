@@ -14,6 +14,11 @@ import streamlit as st
 import yfinance as yf
 
 try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
     from supabase import create_client
 except ImportError:
     create_client = None
@@ -929,6 +934,125 @@ def scan_etfs(rows, workers=6):
 
 
 
+
+
+@st.cache_resource(show_spinner=False)
+def get_openai_client():
+    """Create an optional OpenAI client from Streamlit Secrets / environment variables."""
+    api_key = _secret("OPENAI_API_KEY")
+    if not api_key or OpenAI is None:
+        return None
+    return OpenAI(api_key=api_key)
+
+
+@st.cache_data(ttl=86400, show_spinner=False)
+def two_sentence_ai_take(kind, facts):
+    """Summarize only the supplied app facts. Returns None when AI is not configured."""
+    client = get_openai_client()
+    if client is None:
+        return None
+    model = _secret("OPENAI_MODEL") or "gpt-5-mini"
+    try:
+        response = client.responses.create(
+            model=model,
+            instructions=(
+                "You write for a beginner investing education app. Use ONLY the facts supplied by the app. "
+                "Write exactly two concise sentences in plain English. Do not give a buy/sell instruction, "
+                "do not promise returns, and do not invent facts. Explain what stands out and the main tradeoff or risk."
+            ),
+            input=f"Analysis type: {kind}\nApp facts:\n{facts}",
+            max_output_tokens=120,
+        )
+        text = (getattr(response, "output_text", "") or "").strip()
+        return text or None
+    except Exception:
+        return None
+
+
+def hidden_gem_fallback_take(gem):
+    score = clean_num(gem.get("score"))
+    chart = clean_num(gem.get("chart_health"))
+    growth = max([x for x in [clean_num(gem.get("eps_growth")), clean_num(gem.get("revenue_growth"))] if x is not None] or [None])
+    parts = []
+    if score is not None: parts.append(f"a {score:.0f}/100 Conviction Score")
+    if chart is not None: parts.append(f"{chart:.0f}/100 chart health")
+    if growth is not None: parts.append(f"growth running as high as {growth:.1f}%")
+    first = f"{gem.get('ticker','This company')} surfaced because it combines " + (", ".join(parts) if parts else "several solid quality signals") + "."
+    second = "It is a discovery candidate rather than a recommendation, so the next step is checking the full 10-factor breakdown and understanding what could weaken the thesis."
+    return first + " " + second
+
+
+def dca_fallback_take(goal, risk, daily_amount, model):
+    core = sum(w for _t, w, role in model if "Core" in role or "Broad" in role or "Dividend core" in role)
+    spicy = sum(w for _t, w, role in model if "Spicy" in role or "Theme" in role or "Momentum" in role or "Nasdaq" in role)
+    first = f"This ${daily_amount:.0f}-a-day {risk.lower()} example keeps about {core}% in core exposure and about {spicy}% in higher-octane satellites."
+    second = f"It is built for the '{goal}' goal, but the more satellite exposure you choose, the more short-term swings you should expect."
+    return first + " " + second
+
+
+def _quarter_change_map(snapshot_df):
+    """Return ticker -> last reported quarter-to-quarter Conviction Score change."""
+    if snapshot_df is None or snapshot_df.empty:
+        return {}
+    work = snapshot_df.copy()
+    work["coverage"] = pd.to_numeric(work["coverage"], errors="coerce")
+    work["score"] = pd.to_numeric(work["score"], errors="coerce")
+    work = work[work["coverage"] >= 7]
+    quarters = sorted(work["quarter"].dropna().astype(str).unique(), key=_quarter_sort_key)
+    if len(quarters) < 2:
+        return {}
+    prior, latest = quarters[-2], quarters[-1]
+    a = work[work["quarter"] == latest][["ticker", "score"]].rename(columns={"score":"current"})
+    b = work[work["quarter"] == prior][["ticker", "score"]].rename(columns={"score":"prior"})
+    m = a.merge(b, on="ticker")
+    m["change"] = m["current"] - m["prior"]
+    return dict(zip(m["ticker"].astype(str), m["change"]))
+
+
+def emerging_leader_score(row, qoq_change=None):
+    """Rank quality companies that are not necessarily Top-10 or Hidden Gems but show improving operating/market signals."""
+    score = clean_num(row.get("score"))
+    coverage = clean_num(row.get("coverage"))
+    chart = clean_num(row.get("chart_health"))
+    momentum = clean_num(row.get("one_year_return"))
+    eps = clean_num(row.get("eps_growth"))
+    revenue = clean_num(row.get("revenue_growth"))
+    inst = clean_num(row.get("institutional_ownership"))
+    if score is None or coverage is None or coverage < 7 or score < 62:
+        return None
+    # Keep this as the layer beneath the elite current leaderboard rather than duplicating it.
+    if score >= 88:
+        return None
+    growth_vals = [x for x in (eps, revenue) if x is not None]
+    best_growth = max(growth_vals) if growth_vals else None
+    if chart is not None and chart < 45:
+        return None
+    if momentum is not None and momentum < -15:
+        return None
+    pieces = [
+        (normalize(score, 62, 88), 0.34),
+        (normalize(chart, 45, 90) if chart is not None else None, 0.20),
+        (normalize(momentum, -10, 35) if momentum is not None else None, 0.14),
+        (normalize(best_growth, 0, 35) if best_growth is not None else None, 0.14),
+        (normalize(inst, 25, 90) if inst is not None else None, 0.08),
+        (normalize(qoq_change, -5, 12) if qoq_change is not None else None, 0.10),
+    ]
+    usable = [(v,w) for v,w in pieces if v is not None]
+    if not usable:
+        return None
+    return round(sum(v*w for v,w in usable) / sum(w for _,w in usable), 1)
+
+
+def build_emerging_leaders(leaderboard_df, snapshot_df):
+    if leaderboard_df is None or leaderboard_df.empty:
+        return pd.DataFrame()
+    changes = _quarter_change_map(snapshot_df)
+    work = leaderboard_df.copy()
+    work["QoQ Change"] = work["ticker"].map(changes)
+    work["Emerging Score"] = work.apply(lambda r: emerging_leader_score(r, r.get("QoQ Change")), axis=1)
+    work = work.dropna(subset=["Emerging Score"]).sort_values(["Emerging Score", "score"], ascending=False)
+    return work.reset_index(drop=True)
+
 # ------------------------------
 # Clean beginner-facing UI
 # ------------------------------
@@ -1038,7 +1162,7 @@ def render_stock_result(symbol, force=False):
 
 
 with main_stocks:
-    stock_search_tab, market_tab, hidden_tab = st.tabs(["🔎 Search a Stock", "🏆 Market Leaders", "💎 Hidden Gems"])
+    stock_search_tab, market_tab, emerging_tab, hidden_tab = st.tabs(["🔎 Search a Stock", "🏆 Market Leaders", "🚀 Emerging Leaders", "💎 Hidden Gems"])
 
     with stock_search_tab:
         st.markdown("### Search any stock")
@@ -1160,6 +1284,29 @@ with main_stocks:
                     st.dataframe(show[["Rank", "ticker", "company", "Price", "Mean Target", "Upside", "Analysts"]], use_container_width=True, hide_index=True)
 
 
+    with emerging_tab:
+        st.markdown("### 🚀 Emerging Leaders")
+        st.caption("Strong companies that may be improving before they reach the absolute Top 10. This fills the gap between established market leaders and smaller Hidden Gems.")
+        leaderboard_df = st.session_state.get("leaderboard_df", pd.DataFrame())
+        snapshots = load_snapshots()
+        emerging = build_emerging_leaders(leaderboard_df, snapshots)
+        if leaderboard_df.empty:
+            st.info("Go to **Market Leaders** and run **Refresh market scan** first. Emerging Leaders uses that same full-market scan—no second wait.")
+        elif emerging.empty:
+            st.info("This scan did not produce enough Emerging Leader candidates. Refresh the market scan later as scores and chart trends change.")
+        else:
+            top = emerging.head(15).copy()
+            top.insert(0, "Rank", range(1, len(top)+1))
+            top["Conviction"] = top["score"].map(lambda x: f"{x:.1f}")
+            top["Emerging"] = top["Emerging Score"].map(lambda x: f"{x:.1f}")
+            top["Chart"] = top["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
+            top["1Y Return"] = top["one_year_return"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
+            top["Growth"] = top.apply(lambda r: max([x for x in [clean_num(r.get("eps_growth")), clean_num(r.get("revenue_growth"))] if x is not None] or [None]), axis=1)
+            top["Growth"] = top["Growth"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
+            top["QoQ"] = top["QoQ Change"].map(lambda x: "—" if pd.isna(x) else f"{x:+.1f}")
+            st.dataframe(top[["Rank","ticker","company","Emerging","Conviction","Chart","1Y Return","Growth","QoQ"]], use_container_width=True, hide_index=True)
+            st.caption("Emerging Score blends current Conviction, chart health, momentum, growth, institutional support, and quarterly score improvement when history exists. It is a discovery ranking, not a buy list.")
+
 
     with hidden_tab:
         st.markdown("### 💎 Hidden Gems")
@@ -1206,6 +1353,24 @@ with main_stocks:
 
             st.markdown("### Why it surfaced")
             st.write("\n".join(f"• {x}" for x in hidden_gem_reasons(gem)))
+
+            facts = "\n".join([
+                f"Ticker: {gem.get('ticker')}",
+                f"Company: {gem.get('company')}",
+                f"Conviction Score: {clean_num(gem.get('score'))}",
+                f"Hidden Gem Score: {clean_num(gem.get('hidden_gem_score'))}",
+                f"EPS growth: {clean_num(gem.get('eps_growth'))}%",
+                f"Revenue growth: {clean_num(gem.get('revenue_growth'))}%",
+                f"Chart health: {clean_num(gem.get('chart_health'))}/100",
+                f"12M return: {clean_num(gem.get('one_year_return'))}%",
+                f"Analyst upside: {clean_num(gem.get('analyst_upside'))}%",
+                f"Analyst count: {clean_num(gem.get('analyst_count'))}",
+            ])
+            ai_take = two_sentence_ai_take("Hidden Gem", facts)
+            st.markdown("### ✨ Quick take")
+            st.write(ai_take or hidden_gem_fallback_take(gem))
+            if ai_take is None:
+                st.caption("Plain-English fallback shown. Add an OpenAI API key to Streamlit Secrets to turn this into an AI-generated two-sentence summary.")
 
             if isinstance(pool, pd.DataFrame) and not pool.empty:
                 st.caption(f"This discovery scan found **{len(pool)} qualifying Hidden Gems** among {len(st.session_state.get('hidden_gem_scan', []))} randomly checked S&P 500 stocks.")
@@ -1392,6 +1557,22 @@ with main_dca:
     core_weight = sum(w for _t,w,role in model if "Core" in role or "Broad" in role or "Dividend core" in role)
     spicy_weight = sum(w for _t,w,role in model if "Spicy" in role or "Theme" in role or "Momentum" in role or "Nasdaq" in role)
     st.caption(f"This example is about **{core_weight}% core** and **{spicy_weight}% higher-octane satellite** exposure, with the rest used for diversification/stability.")
+
+    dca_facts = "\n".join([
+        f"Daily contribution: ${daily_amount:.2f}",
+        f"Goal: {dca_goal}",
+        f"Risk setting: {dca_risk}",
+        f"Approximate annual contribution: ${annual:.0f}",
+        "Allocation: " + "; ".join(f"{t} {w}% ({role})" for t,w,role in model),
+        f"Core weight: {core_weight}%",
+        f"Higher-octane satellite weight: {spicy_weight}%",
+    ])
+    dca_ai = two_sentence_ai_take("DCA model", dca_facts)
+    st.markdown("### ✨ Quick take")
+    st.write(dca_ai or dca_fallback_take(dca_goal, dca_risk, daily_amount, model))
+    if dca_ai is None:
+        st.caption("Plain-English fallback shown. Add an OpenAI API key to Streamlit Secrets to turn this into an AI-generated two-sentence summary.")
+
     with st.expander("What does DCA mean?"):
         st.write("Dollar-cost averaging means investing a fixed dollar amount on a regular schedule instead of trying to guess the perfect day to buy. It can make a long-term plan easier to stick with, but it does not prevent losses.")
     with st.expander("Why core + satellite?"):
