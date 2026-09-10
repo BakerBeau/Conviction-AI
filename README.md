@@ -1,40 +1,16 @@
-# Conviction AI v0.6.5
+# Conviction AI v0.6.6
 
-Beginner-friendly stock and ETF research in one Streamlit app.
+Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 
-## New in v0.6.5 — Hidden Gems
+## What is new in v0.6.6
 
-The Stocks section now includes a final **Hidden Gems** tab.
-
-A Hidden Gem must first pass a quality screen:
-- Conviction Score of 70+
-- At least 7/10 scoring factors available
-- S&P 500 company
-- Approx. $2B–$150B market cap
-- 8–20 covering analysts
-- Chart Health of 60+
-- Positive EPS/revenue growth, with at least one at 10%+
-- No clearly weak institutional/insider signal
-- At least 5% analyst target upside when that data is available
-
-The app then calculates a separate **Hidden Gem Score** that rewards quality plus being relatively underfollowed. Low trading volume by itself is not treated as a positive signal.
-
-The discovery button checks a random slice of the S&P 500, builds a qualifying pool, and randomly surfaces one candidate. Users can roll another candidate from the same pool or open the full 10-factor analysis.
-
-## Main sections
-
-### Stocks
-- Search a Stock
-- Market Leaders
-  - Top Stocks
-  - Biggest Improvers
-  - Analyst Opportunities
-- Hidden Gems
-
-### ETFs
-- ETF Finder
-- Top ETFs
-- Best All-Around
+- Analyst data is de-emphasized in Market Leaders. It remains one of the 10 stock factors, while the price-target-gap table is now a secondary expandable view.
+- Top Stocks now highlights Chart Health instead of analyst upside.
+- ETF Compare lets users compare 2–5 ETFs side by side across YTD, 1Y, 3Y/5Y/10Y CAGR, expense ratio, volatility, and drawdown.
+- ETF filters use multiple tags, so a fund can appear in Growth, Large Cap, Technology-heavy, Core, etc. instead of being trapped in one category.
+- Expanded curated ETF universe so category filters return healthier lists.
+- New DCA Builder: choose a daily dollar amount, goal, and aggressiveness to see an educational ETF model allocation.
+- DCA presets emphasize a core + satellite structure and clearly label examples as educational, not personalized investment recommendations.
 
 ## Run locally
 
@@ -45,12 +21,8 @@ streamlit run app.py
 
 ## Deploy
 
-Upload these files to the existing GitHub repository and commit the changes. Streamlit Community Cloud should redeploy automatically.
+Upload the contents of this folder to your GitHub repository. Streamlit Community Cloud should redeploy automatically after the commit.
 
-## Disclaimer
+## Data note
 
-For research and educational purposes only. Not investment advice. Live market data may be delayed, incomplete, or unavailable.
-
-
-## Hidden Gems v0.6.5
-The Hidden Gems screen now uses a broader quality floor and a ranking model instead of a narrow perfect-checklist filter. Default discovery depth is 120 randomly selected S&P 500 companies, with 80/120/160 options.
+Market data is sourced through `yfinance` and may be delayed, incomplete, or unavailable. Conviction AI is for research and education, not investment advice.

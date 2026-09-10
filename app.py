@@ -737,10 +737,72 @@ ETF_UNIVERSE = [
     ("BND", "Vanguard Total Bond Market", "Bonds", False), ("AGG", "iShares Core U.S. Aggregate Bond", "Bonds", False),
     ("SGOV", "iShares 0-3 Month Treasury Bond", "Bonds", False), ("TLT", "iShares 20+ Year Treasury Bond", "Bonds", False),
     # Leveraged — hidden by default
+    # Additional broad / style funds to make category filters useful
+    ("VT", "Vanguard Total World Stock", "Broad Market", False), ("ACWI", "iShares MSCI ACWI", "Broad Market", False),
+    ("VV", "Vanguard Large-Cap", "Large Cap", False), ("SCHX", "Schwab U.S. Large-Cap", "Large Cap", False),
+    ("MGC", "Vanguard Mega Cap", "Large Cap", False), ("VONE", "Vanguard Russell 1000", "Large Cap", False),
+    ("VONG", "Vanguard Russell 1000 Growth", "Growth", False), ("IUSG", "iShares Core S&P U.S. Growth", "Growth", False),
+    ("IWY", "iShares Russell Top 200 Growth", "Growth", False), ("QGRO", "American Century U.S. Quality Growth", "Growth", False),
+    ("VBR", "Vanguard Small-Cap Value", "Small Cap", False), ("IJS", "iShares S&P Small-Cap 600 Value", "Small Cap", False),
+    ("SCHA", "Schwab U.S. Small-Cap", "Small Cap", False), ("VXF", "Vanguard Extended Market", "Mid Cap", False),
+    ("IUSV", "iShares Core S&P U.S. Value", "Value", False), ("VONV", "Vanguard Russell 1000 Value", "Value", False),
+    ("USMV", "iShares MSCI USA Min Vol Factor", "Quality", False), ("SPLV", "Invesco S&P 500 Low Volatility", "Quality", False),
+    ("OMFL", "Invesco Russell 1000 Dynamic Multifactor", "Quality", False), ("COWZ", "Pacer U.S. Cash Cows 100", "Quality", False),
+    ("FDVV", "Fidelity High Dividend", "Dividend", False), ("HDV", "iShares Core High Dividend", "Dividend", False),
+    ("NOBL", "ProShares S&P 500 Dividend Aristocrats", "Dividend", False), ("SDY", "SPDR S&P Dividend", "Dividend", False),
+    ("IXUS", "iShares Core MSCI Total International", "International", False), ("EFA", "iShares MSCI EAFE", "International", False),
+    ("SPDW", "SPDR Portfolio Developed World ex-US", "International", False), ("EMXC", "iShares MSCI Emerging Markets ex China", "International", False),
+    ("EWJ", "iShares MSCI Japan", "International", False), ("INDA", "iShares MSCI India", "International", False),
+    ("XHB", "SPDR S&P Homebuilders", "Sector", False), ("ITA", "iShares U.S. Aerospace & Defense", "Sector", False),
+    ("PAVE", "Global X U.S. Infrastructure Development", "Sector", False), ("IHI", "iShares U.S. Medical Devices", "Sector", False),
+    ("ICLN", "iShares Global Clean Energy", "Thematic", False), ("LIT", "Global X Lithium & Battery Tech", "Thematic", False),
+    ("COPX", "Global X Copper Miners", "Thematic", False), ("GRID", "First Trust NASDAQ Clean Edge Smart Grid Infrastructure", "Thematic", False),
+    ("HACK", "ETFMG Prime Cyber Security", "Technology", False), ("SKYY", "First Trust Cloud Computing", "Technology", False),
+    ("VGSH", "Vanguard Short-Term Treasury", "Bonds", False), ("VGIT", "Vanguard Intermediate-Term Treasury", "Bonds", False),
+    ("VCIT", "Vanguard Intermediate-Term Corporate Bond", "Bonds", False), ("TIP", "iShares TIPS Bond", "Bonds", False),
     ("TQQQ", "ProShares UltraPro QQQ", "Leveraged", True), ("SOXL", "Direxion Daily Semiconductor Bull 3X", "Leveraged", True),
     ("UPRO", "ProShares UltraPro S&P500", "Leveraged", True), ("SPXL", "Direxion Daily S&P 500 Bull 3X", "Leveraged", True),
 ]
 
+
+
+# ETFs can belong to more than one beginner-friendly bucket.
+ETF_EXTRA_TAGS = {
+    "VOO": ["Core", "Large Cap", "US Equity"], "IVV": ["Core", "Large Cap", "US Equity"],
+    "SPY": ["Core", "Large Cap", "US Equity"], "SPLG": ["Core", "Large Cap", "US Equity"],
+    "VTI": ["Core", "US Equity", "Total Market"], "ITOT": ["Core", "US Equity", "Total Market"], "SCHB": ["Core", "US Equity", "Total Market"],
+    "VOOG": ["Growth", "Large Cap", "US Equity"], "SCHG": ["Growth", "Large Cap", "US Equity"], "VUG": ["Growth", "Large Cap", "US Equity"],
+    "IWF": ["Growth", "Large Cap", "US Equity"], "SPYG": ["Growth", "Large Cap", "US Equity"], "MGK": ["Growth", "Mega Cap", "US Equity"],
+    "QQQM": ["Growth", "Nasdaq", "Technology-heavy", "US Equity"], "QQQ": ["Growth", "Nasdaq", "Technology-heavy", "US Equity"],
+    "VGT": ["Technology", "Growth", "US Equity"], "XLK": ["Technology", "Growth", "US Equity"], "FTEC": ["Technology", "Growth", "US Equity"],
+    "SMH": ["Semiconductors", "Technology", "Growth"], "SOXX": ["Semiconductors", "Technology", "Growth"], "XSD": ["Semiconductors", "Technology", "Growth"],
+    "SPMO": ["Momentum", "Growth", "Large Cap"], "MTUM": ["Momentum", "Large Cap"],
+    "MOAT": ["Quality", "Large Cap"], "QUAL": ["Quality", "Large Cap"], "SPHQ": ["Quality", "Large Cap"],
+    "VTV": ["Value", "Large Cap"], "SCHV": ["Value", "Large Cap"], "IWD": ["Value", "Large Cap"],
+    "SCHD": ["Dividend", "Income", "Quality"], "VIG": ["Dividend", "Income", "Quality"], "DGRO": ["Dividend", "Income", "Growth"], "VYM": ["Dividend", "Income"],
+    "IJH": ["Mid Cap", "US Equity"], "VO": ["Mid Cap", "US Equity"], "XMMO": ["Mid Cap", "Momentum", "US Equity"],
+    "IJR": ["Small Cap", "US Equity"], "VB": ["Small Cap", "US Equity"], "IWM": ["Small Cap", "US Equity"], "AVUV": ["Small Cap", "Value", "US Equity"],
+    "VXUS": ["International", "Core", "Global"], "VEA": ["International", "Developed Markets"], "VWO": ["International", "Emerging Markets"],
+    "IEFA": ["International", "Developed Markets"], "IEMG": ["International", "Emerging Markets"],
+    "BND": ["Bonds", "Core", "Defensive"], "AGG": ["Bonds", "Core", "Defensive"], "SGOV": ["Bonds", "Cash-like", "Defensive"], "TLT": ["Bonds", "Long Duration"],
+    "ARKK": ["Thematic", "Aggressive"], "BOTZ": ["Thematic", "AI", "Aggressive"], "AIQ": ["Thematic", "AI", "Aggressive"],
+    "URA": ["Thematic", "Uranium", "Aggressive"], "NLR": ["Thematic", "Uranium", "Aggressive"], "QTUM": ["Thematic", "Quantum", "Aggressive"],
+    "IBIT": ["Alternative", "Bitcoin", "Aggressive"],
+}
+
+def etf_tags(row):
+    ticker, _name, category, _lev = row
+    return sorted(set([category] + ETF_EXTRA_TAGS.get(ticker, [])))
+
+def all_etf_filter_tags(include_leveraged=False):
+    tags = set()
+    for row in ETF_UNIVERSE:
+        if row[3] and not include_leveraged:
+            continue
+        tags.update(etf_tags(row))
+    preferred = ["All", "Core", "Growth", "Large Cap", "Technology", "Semiconductors", "Quality", "Momentum", "Dividend", "Value", "Small Cap", "Mid Cap", "International", "Bonds", "Thematic", "Aggressive"]
+    rest = sorted(tags - set(preferred))
+    return [x for x in preferred if x == "All" or x in tags] + rest
 
 
 def _price_on_or_after(closes, date):
@@ -873,7 +935,7 @@ def scan_etfs(rows, workers=6):
 
 st.caption("Start with a ticker or browse the market. Stocks need at least **7/10 factors** before they can appear in rankings.")
 
-main_stocks, main_etfs = st.tabs(["📈 Stocks", "🧺 ETFs"])
+main_stocks, main_etfs, main_dca = st.tabs(["📈 Stocks", "🧺 ETFs", "🧱 DCA Builder"])
 
 
 def render_stock_result(symbol, force=False):
@@ -1032,7 +1094,7 @@ with main_stocks:
         snapshots = load_snapshots()
         winners, losers, prior_q, latest_q = quarter_movers(snapshots)
 
-        top_tab, improve_tab, analyst_tab = st.tabs(["Top Stocks", "Biggest Improvers", "Analyst Opportunities"])
+        top_tab, improve_tab = st.tabs(["Top Stocks", "Biggest Improvers"])
 
         with top_tab:
             if leaderboard_df.empty:
@@ -1043,9 +1105,9 @@ with main_stocks:
                 top10["Score"] = top10["score"].map(lambda x: f"{x:.1f}")
                 top10["Coverage"] = top10["coverage"].map(lambda x: f"{int(x)}/10")
                 top10["1Y Return"] = top10["one_year_return"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
-                top10["Analyst Upside"] = top10["analyst_upside"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
+                top10["Chart Health"] = top10["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
                 st.dataframe(
-                    top10[["Rank", "ticker", "company", "Score", "Coverage", "1Y Return", "Analyst Upside"]],
+                    top10[["Rank", "ticker", "company", "Score", "Coverage", "1Y Return", "Chart Health"]],
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -1077,8 +1139,8 @@ with main_stocks:
                     fall["Change"] = fall["change"].map(lambda x: f"{x:.1f}")
                     st.dataframe(fall[["Rank", "ticker", "company", "Current Score", "Prior Score", "Change"]], use_container_width=True, hide_index=True)
 
-        with analyst_tab:
-            st.caption("Largest gaps between current price and the mean analyst target. Requires **8+ analysts**.")
+        with st.expander("Wall Street price gaps (secondary view)"):
+            st.caption("Largest gaps between current price and the mean analyst target. Requires **8+ analysts**. Use this as supporting evidence, not the main thesis.")
             if leaderboard_df.empty:
                 st.info("Click **Refresh market scan** first.")
             else:
@@ -1095,8 +1157,8 @@ with main_stocks:
                     show["Mean Target"] = show["target_mean"].map(lambda x: "N/A" if pd.isna(x) else f"${x:,.2f}")
                     show["Upside"] = show["analyst_upside"].map(lambda x: f"{x:+.1f}%")
                     show["Analysts"] = show["analyst_count"].map(lambda x: f"{int(x)}")
-                    show["Conviction"] = show["score"].map(lambda x: f"{x:.1f}")
-                    st.dataframe(show[["Rank", "ticker", "company", "Price", "Mean Target", "Upside", "Analysts", "Conviction"]], use_container_width=True, hide_index=True)
+                    st.dataframe(show[["Rank", "ticker", "company", "Price", "Mean Target", "Upside", "Analysts"]], use_container_width=True, hide_index=True)
+
 
 
     with hidden_tab:
@@ -1169,9 +1231,9 @@ with main_stocks:
 
 with main_etfs:
     st.markdown("### ETF research made simple")
-    st.caption("Find a specific ETF or browse performance. Leveraged ETFs are hidden by default.")
+    st.caption("Find, compare, and rank ETFs without needing to understand every fund metric first. Leveraged ETFs are hidden by default.")
 
-    finder_tab, top_etf_tab, all_around_tab = st.tabs(["🔎 ETF Finder", "🏁 Top ETFs", "⭐ Best All-Around"])
+    finder_tab, compare_tab, top_etf_tab, all_around_tab = st.tabs(["🔎 ETF Finder", "⚖️ Compare ETFs", "🏁 Top ETFs", "⭐ Best All-Around"])
 
     with finder_tab:
         etf_lookup = st.text_input("ETF ticker", placeholder="VOO, VOOG, QQQM, SPMO, MOAT…", key="etf_lookup_clean").strip().upper()
@@ -1182,7 +1244,7 @@ with main_etfs:
                 with st.spinner(f"Loading {etf_lookup}…"):
                     m = fetch_etf_metrics(etf_lookup)
                 st.subheader(f"{row[1]} ({etf_lookup})")
-                st.caption(row[2])
+                st.caption(" • ".join(etf_tags(row)))
                 c1, c2, c3, c4, c5 = st.columns(5)
                 c1.metric("YTD", "N/A" if m.get("ytd") is None else f"{m['ytd']:+.1f}%")
                 c2.metric("1Y", "N/A" if m.get("1Y") is None else f"{m['1Y']:+.1f}%")
@@ -1198,16 +1260,49 @@ with main_etfs:
         else:
             st.info("Try **VOO**, **VOOG**, **QQQM**, **SCHG**, **SPMO**, **MOAT**, **VGT**, or **SMH**.")
 
+    with compare_tab:
+        st.caption("Pick 2–5 ETFs and compare the numbers side by side.")
+        etf_options = [r[0] for r in ETF_UNIVERSE if not r[3]]
+        compare_tickers = st.multiselect("ETFs to compare", etf_options, default=["VOO", "VOOG", "QQQM"], max_selections=5, key="etf_compare_tickers")
+        if st.button("Compare selected ETFs", type="primary", use_container_width=True, key="etf_compare_btn"):
+            if len(compare_tickers) < 2:
+                st.warning("Pick at least two ETFs.")
+            else:
+                lookup = {r[0]: r for r in ETF_UNIVERSE}
+                rows = []
+                with st.spinner("Building comparison…"):
+                    for t in compare_tickers:
+                        m = fetch_etf_metrics(t)
+                        rows.append({
+                            "ETF": t, "Name": lookup[t][1],
+                            "YTD": m.get("ytd"), "1Y": m.get("1Y"), "3Y CAGR": m.get("3Y"), "5Y CAGR": m.get("5Y"), "10Y CAGR": m.get("10Y"),
+                            "Expense Ratio": m.get("expense_ratio"), "5Y Volatility": m.get("volatility_5y"), "5Y Max Drawdown": m.get("max_drawdown_5y"),
+                        })
+                df = pd.DataFrame(rows)
+                display = df.copy()
+                for col in ["YTD", "1Y", "3Y CAGR", "5Y CAGR", "10Y CAGR", "Expense Ratio", "5Y Volatility", "5Y Max Drawdown"]:
+                    display[col] = display[col].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
+                st.dataframe(display, use_container_width=True, hide_index=True)
+                numeric = df.set_index("ETF")
+                callouts=[]
+                if numeric["5Y CAGR"].notna().any(): callouts.append(f"**Best 5Y growth:** {numeric['5Y CAGR'].idxmax()}")
+                if numeric["Expense Ratio"].notna().any(): callouts.append(f"**Lowest cost:** {numeric['Expense Ratio'].idxmin()}")
+                if numeric["5Y Volatility"].notna().any(): callouts.append(f"**Lowest volatility:** {numeric['5Y Volatility'].idxmin()}")
+                if numeric["5Y Max Drawdown"].notna().any(): callouts.append(f"**Shallowest 5Y drawdown:** {numeric['5Y Max Drawdown'].idxmax()}")
+                if callouts:
+                    st.markdown(" · ".join(callouts))
+                st.caption("A higher return is not automatically better; cost, volatility, diversification, and drawdowns matter too.")
+
     with top_etf_tab:
         period = st.radio("Performance period", ["YTD", "1Y", "3Y CAGR", "5Y CAGR", "10Y CAGR"], horizontal=True, index=3, key="etf_period_clean")
         c1, c2 = st.columns([2, 1])
-        with c1:
-            categories = ["All"] + sorted({r[2] for r in ETF_UNIVERSE if not r[3]})
-            category = st.selectbox("ETF type", categories, key="etf_category_clean")
         with c2:
             include_leveraged = st.toggle("Include leveraged", value=False, key="etf_leveraged_clean")
+        with c1:
+            category = st.selectbox("ETF type", all_etf_filter_tags(include_leveraged), key="etf_category_clean")
 
-        eligible = [r for r in ETF_UNIVERSE if (include_leveraged or not r[3]) and (category == "All" or r[2] == category)]
+        eligible = [r for r in ETF_UNIVERSE if (include_leveraged or not r[3]) and (category == "All" or category in etf_tags(r))]
+        st.caption(f"{len(eligible)} ETFs match this filter. Funds can appear in more than one category.")
         if st.button(f"Refresh ETF rankings ({len(eligible)} funds)", type="primary", use_container_width=True, key="etf_refresh_clean"):
             with st.spinner(f"Comparing {len(eligible)} ETFs…"):
                 st.session_state.etf_df = scan_etfs(eligible)
@@ -1253,11 +1348,61 @@ with main_etfs:
             ranked["Expense"] = ranked["expense_ratio"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.2f}%")
             st.dataframe(ranked[["Rank","ticker","name","category","ETF Score","5Y CAGR","10Y CAGR","Expense"]], use_container_width=True, hide_index=True)
 
+
+# ------------------------------
+# DCA Builder
+# ------------------------------
+DCA_MODELS = {
+    ("Keep it simple", "Conservative"): [("VOO", 55, "Core U.S. stocks"), ("VXUS", 20, "International diversification"), ("BND", 25, "Bonds / stability")],
+    ("Keep it simple", "Balanced"): [("VOO", 70, "Core U.S. stocks"), ("VXUS", 20, "International diversification"), ("BND", 10, "Bonds / stability")],
+    ("Keep it simple", "Growth"): [("VOO", 75, "Core U.S. stocks"), ("VOOG", 15, "Growth tilt"), ("VXUS", 10, "International diversification")],
+    ("Keep it simple", "Aggressive"): [("VOO", 65, "Core U.S. stocks"), ("VOOG", 20, "Growth tilt"), ("QQQM", 15, "Nasdaq growth")],
+    ("Long-term growth", "Conservative"): [("VOO", 65, "Core compounder"), ("VOOG", 15, "Growth tilt"), ("VXUS", 10, "Diversification"), ("BND", 10, "Stability")],
+    ("Long-term growth", "Balanced"): [("VOO", 60, "Core compounder"), ("VOOG", 20, "Growth tilt"), ("QQQM", 10, "Nasdaq growth"), ("AVUV", 10, "Small-cap diversification")],
+    ("Long-term growth", "Growth"): [("VOO", 50, "Core compounder"), ("VOOG", 25, "Growth tilt"), ("QQQM", 15, "Nasdaq growth"), ("SPMO", 10, "Momentum satellite")],
+    ("Long-term growth", "Aggressive"): [("VOO", 45, "Core compounder"), ("VOOG", 25, "Growth tilt"), ("QQQM", 20, "Nasdaq growth"), ("SMH", 10, "Spicy satellite")],
+    ("Core + a little spice", "Conservative"): [("VOO", 75, "Core compounder"), ("VXUS", 15, "Diversification"), ("MOAT", 10, "Quality satellite")],
+    ("Core + a little spice", "Balanced"): [("VOO", 70, "Core compounder"), ("VOOG", 15, "Growth tilt"), ("MOAT", 10, "Quality satellite"), ("SMH", 5, "Spicy satellite")],
+    ("Core + a little spice", "Growth"): [("VOO", 65, "Core compounder"), ("VOOG", 15, "Growth tilt"), ("SPMO", 10, "Momentum satellite"), ("SMH", 10, "Spicy satellite")],
+    ("Core + a little spice", "Aggressive"): [("VOO", 55, "Core compounder"), ("VOOG", 15, "Growth tilt"), ("QQQM", 10, "Nasdaq growth"), ("SMH", 10, "Spicy satellite"), ("URA", 5, "Theme satellite"), ("QTUM", 5, "Theme satellite")],
+    ("Income & stability", "Conservative"): [("SCHD", 40, "Dividend core"), ("VOO", 30, "Broad U.S. stocks"), ("BND", 20, "Bonds"), ("SGOV", 10, "Short Treasury")],
+    ("Income & stability", "Balanced"): [("SCHD", 40, "Dividend core"), ("VOO", 40, "Broad U.S. stocks"), ("BND", 20, "Bonds")],
+    ("Income & stability", "Growth"): [("VOO", 50, "Broad U.S. stocks"), ("SCHD", 30, "Dividend quality"), ("VIG", 20, "Dividend growth")],
+    ("Income & stability", "Aggressive"): [("VOO", 50, "Broad U.S. stocks"), ("SCHD", 25, "Dividend quality"), ("VIG", 15, "Dividend growth"), ("QQQM", 10, "Growth satellite")],
+}
+
+with main_dca:
+    st.markdown("### 🧱 Build a simple DCA plan")
+    st.caption("Choose what you are trying to build and how aggressive you want to be. Conviction AI turns the daily amount into an easy educational example allocation.")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        daily_amount = st.number_input("Amount per day", min_value=1.0, max_value=1000.0, value=10.0, step=1.0, key="dca_daily")
+    with c2:
+        dca_goal = st.selectbox("What are you trying to build?", ["Keep it simple", "Long-term growth", "Core + a little spice", "Income & stability"], key="dca_goal")
+    with c3:
+        dca_risk = st.selectbox("How aggressive?", ["Conservative", "Balanced", "Growth", "Aggressive"], index=2, key="dca_risk")
+
+    model = DCA_MODELS[(dca_goal, dca_risk)]
+    rows=[]
+    for ticker, weight, role in model:
+        rows.append({"ETF": ticker, "Role": role, "Weight": f"{weight}%", "Per Day": f"${daily_amount*weight/100:.2f}", "Per Week": f"${daily_amount*7*weight/100:.2f}"})
+    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    annual = daily_amount * 365
+    st.metric("Approx. yearly contributions", f"${annual:,.0f}")
+    core_weight = sum(w for _t,w,role in model if "Core" in role or "Broad" in role or "Dividend core" in role)
+    spicy_weight = sum(w for _t,w,role in model if "Spicy" in role or "Theme" in role or "Momentum" in role or "Nasdaq" in role)
+    st.caption(f"This example is about **{core_weight}% core** and **{spicy_weight}% higher-octane satellite** exposure, with the rest used for diversification/stability.")
+    with st.expander("What does DCA mean?"):
+        st.write("Dollar-cost averaging means investing a fixed dollar amount on a regular schedule instead of trying to guess the perfect day to buy. It can make a long-term plan easier to stick with, but it does not prevent losses.")
+    with st.expander("Why core + satellite?"):
+        st.write("The core is meant to do most of the long-term compounding. Smaller satellite positions can add growth, momentum, sectors, or themes without letting the entire plan depend on one concentrated bet.")
+    st.info("These are educational model allocations, not personalized investment recommendations. A real allocation should also consider time horizon, emergency savings, taxes, and ability to tolerate losses.")
+
 st.divider()
 st.caption("For research and educational purposes only. Not investment advice.")
 with st.expander("About Conviction AI"):
     st.write(
-        "Conviction AI is designed to make stock and ETF research easier for beginner investors by summarizing public market data into simple rankings and research views."
+        "Conviction AI is designed to make stock, ETF, and DCA research easier for beginner investors by summarizing public market data into simple rankings, comparisons, and educational model allocations."
     )
 with st.expander("Data & disclaimer"):
     st.write(
