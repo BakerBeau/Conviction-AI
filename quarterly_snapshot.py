@@ -12,14 +12,14 @@ import yfinance as yf
 OUT = Path(__file__).with_name('quarterly_scores.csv')
 WEIGHTS = {
     'EPS Growth': 0.16,
-    'Revenue Growth': 0.11,
-    'Net Margin': 0.11,
-    'ROIC / Capital Efficiency': 0.11,
-    'Forward P/E': 0.10,
-    'Analyst Conviction': 0.11,
-    'Institutional Ownership': 0.07,
-    'Insider Activity': 0.05,
-    '12M Momentum': 0.08,
+    'Revenue Growth': 0.13,
+    'Net Margin': 0.10,
+    'ROIC / Capital Efficiency': 0.13,
+    'Forward P/E': 0.12,
+    'Analyst Conviction': 0.08,
+    'Institutional Ownership': 0.05,
+    'Insider Activity': 0.04,
+    '12M Momentum': 0.09,
     'Chart Health': 0.10,
 }
 
@@ -44,6 +44,72 @@ def normalize(v, low, high, reverse=False):
     s = max(0.0, min(100.0, (v - low) / (high - low) * 100))
     return 100.0 - s if reverse else s
 
+
+
+def curve_score(value, points):
+    value = clean_num(value)
+    if value is None:
+        return None
+    points = sorted(points)
+    if value <= points[0][0]: return float(points[0][1])
+    if value >= points[-1][0]: return float(points[-1][1])
+    for (x0,y0),(x1,y1) in zip(points, points[1:]):
+        if x0 <= value <= x1:
+            t=(value-x0)/(x1-x0) if x1 != x0 else 1.0
+            return float(y0+t*(y1-y0))
+    return None
+
+
+def eps_growth_score(value):
+    return curve_score(value,[(-30,0),(-20,10),(-10,22),(0,35),(5,45),(10,55),(15,65),(20,73),(30,82),(40,89),(60,95),(100,98),(150,100)])
+
+
+def revenue_growth_score(value):
+    return curve_score(value,[(-20,0),(-10,15),(0,35),(5,45),(10,58),(15,68),(20,77),(30,88),(40,94),(60,98),(80,100)])
+
+
+def margin_score(value):
+    return curve_score(value,[(-10,0),(0,30),(5,42),(10,55),(15,65),(20,74),(25,82),(30,88),(40,95),(50,100)])
+
+
+def roic_score(value):
+    return curve_score(value,[(-5,0),(0,20),(5,35),(10,50),(15,65),(20,77),(25,86),(30,92),(40,97),(50,100)])
+
+
+def valuation_score(forward_pe, eps_growth):
+    pe=clean_num(forward_pe); growth=clean_num(eps_growth)
+    if pe is None or pe <= 0: return None
+    pe_score=curve_score(pe,[(8,95),(12,92),(18,84),(25,72),(35,55),(45,38),(60,20),(90,5)])
+    if growth is None or growth <= 0: return min(70.0, pe_score)
+    peg=pe/max(growth,1.0)
+    peg_score=curve_score(peg,[(0.3,98),(0.6,94),(0.9,86),(1.2,76),(1.5,65),(2.0,50),(3.0,30),(5.0,10)])
+    return round(.65*peg_score+.35*pe_score,1)
+
+
+def institutional_score(value):
+    value=clean_num(value)
+    if value is None: return None
+    return curve_score(value,[(0,42),(20,46),(40,50),(60,56),(75,61),(90,65),(100,66)])
+
+
+def insider_activity_score(value):
+    return curve_score(value,[(-5,30),(-3,38),(-1,46),(0,50),(1,61),(2,73),(3,84),(4,93),(5,100)])
+
+
+def momentum_score(m):
+    m3=clean_num(m.get('momentum_3m')); m6=clean_num(m.get('momentum_6m')); m12=clean_num(m.get('momentum'))
+    vals=[]
+    if m3 is not None: vals.append((curve_score(m3,[(-25,5),(-10,25),(0,45),(5,55),(10,65),(20,78),(35,90),(55,97),(80,100)]),.25))
+    if m6 is not None: vals.append((curve_score(m6,[(-35,5),(-15,25),(0,45),(8,57),(15,68),(30,82),(50,93),(75,98),(110,100)]),.35))
+    if m12 is not None: vals.append((curve_score(m12,[(-50,0),(-20,20),(0,42),(10,55),(20,66),(35,78),(55,89),(80,96),(120,100)]),.40))
+    if not vals: return None
+    score=sum(v*w for v,w in vals)/sum(w for _,w in vals)
+    raw=[x for x in (m3,m6,m12) if x is not None]
+    if len(raw)>=2:
+        positives=sum(x>0 for x in raw)
+        if positives==len(raw): score += 3
+        elif positives<=1: score -= 5
+    return round(max(0,min(100,score)),1)
 
 def safe_row(df, names):
     if df is None or df.empty:
@@ -98,31 +164,37 @@ def momentum_12m(history):
     return (float(closes.iloc[-1]) / float(closes.iloc[0]) - 1) * 100
 
 
-
-def chart_health(history):
+def momentum_period(history, trading_days):
     if history is None or history.empty or 'Close' not in history:
         return None
-    closes = history['Close'].dropna()
-    if len(closes) < 200:
-        return None
-    price = float(closes.iloc[-1])
-    sma50 = float(closes.tail(50).mean())
-    sma200 = float(closes.tail(200).mean())
-    high52 = float(closes.max())
-    score = 0.0
-    if price > sma50:
-        score += 25.0
-    if price > sma200:
-        score += 25.0
-    if sma50 > sma200:
-        score += 20.0
-    if len(closes) >= 63:
-        mom3 = (price / float(closes.iloc[-63]) - 1) * 100
-        score += normalize(mom3, -10, 15) * 0.15
-    if high52 > 0:
-        drawdown = (price / high52 - 1) * 100
-        score += normalize(drawdown, -30, 0) * 0.15
-    return round(max(0.0, min(100.0, score)), 1)
+    closes=history['Close'].dropna()
+    if len(closes) <= trading_days: return None
+    return (float(closes.iloc[-1])/float(closes.iloc[-trading_days])-1)*100
+
+
+
+def chart_health(history):
+    if history is None or history.empty or 'Close' not in history: return None
+    closes=history['Close'].dropna()
+    if len(closes)<200: return None
+    price=float(closes.iloc[-1]); sma50=float(closes.tail(50).mean()); sma200=float(closes.tail(200).mean()); high52=float(closes.max())
+    sma50_20d_ago=float(closes.iloc[-70:-20].mean()) if len(closes)>=70 else sma50
+    score=0.0
+    if price>sma50: score += 15
+    if price>sma200: score += 20
+    if sma50>sma200: score += 20
+    mom3=momentum_period(history,63)
+    if mom3 is not None: score += curve_score(mom3,[(-20,0),(-5,25),(0,45),(8,65),(15,80),(25,95),(40,100)])*.20
+    if high52>0:
+        drawdown=(price/high52-1)*100
+        score += curve_score(drawdown,[(-40,0),(-25,20),(-15,45),(-10,60),(-5,80),(0,100)])*.15
+    if sma50_20d_ago>0:
+        slope=(sma50/sma50_20d_ago-1)*100
+        score += curve_score(slope,[(-8,0),(-3,20),(0,45),(2,65),(5,85),(8,100)])*.10
+    if price<sma200: score=min(score,48)
+    elif price<sma50: score=min(score,64)
+    if sma50<sma200: score=min(score,72)
+    return round(max(0,min(100,score)),1)
 
 def analyst_upside(info):
     current = clean_num(info.get('currentPrice') or info.get('regularMarketPrice'))
@@ -138,9 +210,10 @@ def analyst_conviction(info):
     recommendation_mean = clean_num(info.get('recommendationMean'))
     if upside is None or count is None or count < 8:
         return None
-    parts = [(normalize(upside, -10, 40), 0.60), (normalize(count, 8, 35), 0.20)]
+    parts = [(curve_score(upside,[(-20,15),(-10,30),(0,45),(10,58),(20,72),(30,84),(40,92),(60,98)]),0.55),
+             (curve_score(count,[(8,45),(12,55),(18,68),(25,78),(35,86),(50,92)]),0.20)]
     if recommendation_mean is not None:
-        parts.append((normalize(recommendation_mean, 1.0, 4.0, reverse=True), 0.20))
+        parts.append((curve_score(recommendation_mean,[(1.0,95),(1.5,86),(2.0,74),(2.5,60),(3.0,48),(4.0,25),(5.0,10)]),0.25))
     parts = [(a, w) for a, w in parts if a is not None]
     denom = sum(w for _, w in parts)
     return round(sum(a*w for a, w in parts)/denom, 1) if denom else None
@@ -184,28 +257,32 @@ def fetch_info_with_retry(ticker):
         'institutional_ownership': pct(info.get('heldPercentInstitutions')),
         'insider_activity': insider_score(insiders),
         'momentum': momentum_12m(hist),
+        'momentum_6m': momentum_period(hist,126),
+        'momentum_3m': momentum_period(hist,63),
         'chart_health': chart_health(hist),
     }
     return info, metrics
 
 
 def score_stock(m):
-    raw = {
-        'EPS Growth': normalize(m.get('eps_growth'), -20, 50),
-        'Revenue Growth': normalize(m.get('revenue_growth'), -10, 35),
-        'Net Margin': normalize(m.get('net_margin'), -5, 35),
-        'ROIC / Capital Efficiency': normalize(m.get('roic'), 0, 30),
-        'Forward P/E': normalize(m.get('forward_pe'), 10, 45, reverse=True),
+    raw={
+        'EPS Growth': eps_growth_score(m.get('eps_growth')),
+        'Revenue Growth': revenue_growth_score(m.get('revenue_growth')),
+        'Net Margin': margin_score(m.get('net_margin')),
+        'ROIC / Capital Efficiency': roic_score(m.get('roic')),
+        'Forward P/E': valuation_score(m.get('forward_pe'),m.get('eps_growth')),
         'Analyst Conviction': clean_num(m.get('analyst_conviction')),
-        'Institutional Ownership': normalize(m.get('institutional_ownership'), 20, 90),
-        'Insider Activity': normalize(m.get('insider_activity'), -5, 5),
-        '12M Momentum': normalize(m.get('momentum'), -20, 40),
+        'Institutional Ownership': institutional_score(m.get('institutional_ownership')),
+        'Insider Activity': insider_activity_score(m.get('insider_activity')),
+        '12M Momentum': momentum_score(m),
         'Chart Health': clean_num(m.get('chart_health')),
     }
-    available_weight = sum(WEIGHTS[k] for k, v in raw.items() if v is not None)
-    if available_weight == 0:
-        return None
-    return sum(v * WEIGHTS[k] / available_weight for k, v in raw.items() if v is not None)
+    available_weight=sum(WEIGHTS[k] for k,v in raw.items() if v is not None)
+    if available_weight==0: return None
+    total=sum(v*WEIGHTS[k]/available_weight for k,v in raw.items() if v is not None)
+    coverage=sum(v is not None for v in raw.values())
+    total *= {10:1.00,9:.99,8:.97,7:.94,6:.90}.get(coverage,.86)
+    return round(total,2)
 
 
 def index_members(url, expected, ticker_col, name_col):

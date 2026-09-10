@@ -1,4 +1,4 @@
-# Conviction AI v0.6.7
+# Conviction AI v0.7.1
 
 Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 
@@ -57,3 +57,16 @@ Daily DCA inputs are treated as trading-day contributions using 252 trading days
 - Entering a ticker pre-fills **Expected CAGR** from its trailing adjusted-price historical CAGR (up to 5 years) when enough history exists.
 - Users can override the historical CAGR assumption.
 - Multi-holding projections compound each holding using its own expected CAGR and sum the results.
+
+
+## v0.7.1 scoring calibration
+- EPS growth is much harder to max out; 20-30% growth now scores as strong rather than perfect.
+- Revenue growth, margins, and ROIC use tougher piecewise curves.
+- Valuation is growth-adjusted using forward P/E plus a PEG-like growth relationship.
+- Analyst Conviction has less weight and requires stronger evidence for elite scores.
+- Institutional ownership is treated as a weak confirmation signal and is capped because ownership level alone is not a bullish catalyst.
+- Insider activity rewards buying more than it punishes routine selling.
+- Momentum blends 3-, 6-, and 12-month persistence so it overlaps less with Chart Health.
+- Chart Health is stricter and includes moving-average structure, 3-month trend, distance from the 52-week high, and the direction of the 50-day average.
+- Incomplete factor coverage receives a small confidence haircut after re-normalization.
+- Goal: make 90+ scores rare and make the 65-85 range more informative.
