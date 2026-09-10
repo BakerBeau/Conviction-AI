@@ -45,3 +45,7 @@ Upload the contents of this folder to your GitHub repository. Streamlit Communit
 ## Data note
 
 Market data is sourced through `yfinance` and may be delayed, incomplete, or unavailable. Conviction AI is for research and education, not investment advice.
+
+
+## DCA convention
+Daily DCA inputs are treated as trading-day contributions using 252 trading days per year. For example, $10 per trading day is modeled as approximately $2,520 per year.

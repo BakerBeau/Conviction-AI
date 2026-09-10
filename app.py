@@ -985,7 +985,7 @@ def hidden_gem_fallback_take(gem):
 def dca_fallback_take(goal, risk, daily_amount, model):
     core = sum(w for _t, w, role in model if "Core" in role or "Broad" in role or "Dividend core" in role)
     spicy = sum(w for _t, w, role in model if "Spicy" in role or "Theme" in role or "Momentum" in role or "Nasdaq" in role)
-    first = f"This ${daily_amount:.0f}-a-day {risk.lower()} example keeps about {core}% in core exposure and about {spicy}% in higher-octane satellites."
+    first = f"This ${daily_amount:.0f}-per-trading-day {risk.lower()} example keeps about {core}% in core exposure and about {spicy}% in higher-octane satellites."
     second = f"It is built for the '{goal}' goal, but the more satellite exposure you choose, the more short-term swings you should expect."
     return first + " " + second
 
@@ -1536,48 +1536,161 @@ DCA_MODELS = {
     ("Income & stability", "Aggressive"): [("VOO", 50, "Broad U.S. stocks"), ("SCHD", 25, "Dividend quality"), ("VIG", 15, "Dividend growth"), ("QQQM", 10, "Growth satellite")],
 }
 
+
+def project_dca(starting_balance, daily_amount, annual_rate_pct, years):
+    """Project a trading-day DCA using 252 market days per year, converted to monthly-equivalent contributions and monthly compounding."""
+    months = int(years * 12)
+    monthly_contribution = daily_amount * 252 / 12
+    monthly_rate = (1 + annual_rate_pct / 100) ** (1 / 12) - 1 if annual_rate_pct > -100 else -1
+    if abs(monthly_rate) < 1e-12:
+        return starting_balance + monthly_contribution * months
+    growth = (1 + monthly_rate) ** months
+    return starting_balance * growth + monthly_contribution * ((growth - 1) / monthly_rate)
+
+
+def custom_dca_fallback_take(daily_amount, blended_cagr, rows, horizon_value):
+    tickers = ", ".join(r["Ticker"] for r in rows if r["Ticker"])
+    first = f"This model puts ${daily_amount:.2f} per trading day across {tickers or 'your selected investments'} and assumes a blended {blended_cagr:.1f}% annual return."
+    second = f"At that assumption, the 20-year projection is about ${horizon_value:,.0f}, but actual returns will vary and can be materially lower or higher."
+    return first + " " + second
+
+
 with main_dca:
-    st.markdown("### 🧱 Build a simple DCA plan")
-    st.caption("Choose what you are trying to build and how aggressive you want to be. Conviction AI turns the daily amount into an easy educational example allocation.")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        daily_amount = st.number_input("Amount per day", min_value=1.0, max_value=1000.0, value=10.0, step=1.0, key="dca_daily")
-    with c2:
-        dca_goal = st.selectbox("What are you trying to build?", ["Keep it simple", "Long-term growth", "Core + a little spice", "Income & stability"], key="dca_goal")
-    with c3:
-        dca_risk = st.selectbox("How aggressive?", ["Conservative", "Balanced", "Growth", "Aggressive"], index=2, key="dca_risk")
+    st.markdown("### 🧱 DCA Builder")
+    st.caption("Use a guided model or build your own up to 5-investment DCA plan and see how the assumptions compound over time.")
 
-    model = DCA_MODELS[(dca_goal, dca_risk)]
-    rows=[]
-    for ticker, weight, role in model:
-        rows.append({"ETF": ticker, "Role": role, "Weight": f"{weight}%", "Per Day": f"${daily_amount*weight/100:.2f}", "Per Week": f"${daily_amount*7*weight/100:.2f}"})
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-    annual = daily_amount * 365
-    st.metric("Approx. yearly contributions", f"${annual:,.0f}")
-    core_weight = sum(w for _t,w,role in model if "Core" in role or "Broad" in role or "Dividend core" in role)
-    spicy_weight = sum(w for _t,w,role in model if "Spicy" in role or "Theme" in role or "Momentum" in role or "Nasdaq" in role)
-    st.caption(f"This example is about **{core_weight}% core** and **{spicy_weight}% higher-octane satellite** exposure, with the rest used for diversification/stability.")
+    guided_tab, custom_tab = st.tabs(["🧭 Guided DCA", "🛠️ Build Your Own"])
 
-    dca_facts = "\n".join([
-        f"Daily contribution: ${daily_amount:.2f}",
-        f"Goal: {dca_goal}",
-        f"Risk setting: {dca_risk}",
-        f"Approximate annual contribution: ${annual:.0f}",
-        "Allocation: " + "; ".join(f"{t} {w}% ({role})" for t,w,role in model),
-        f"Core weight: {core_weight}%",
-        f"Higher-octane satellite weight: {spicy_weight}%",
-    ])
-    dca_ai = two_sentence_ai_take("DCA model", dca_facts)
-    st.markdown("### ✨ Quick take")
-    st.write(dca_ai or dca_fallback_take(dca_goal, dca_risk, daily_amount, model))
-    if dca_ai is None:
-        st.caption("Plain-English fallback shown. Add an OpenAI API key to Streamlit Secrets to turn this into an AI-generated two-sentence summary.")
+    with guided_tab:
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            daily_amount = st.number_input("Amount per trading day", min_value=1.0, max_value=1000.0, value=10.0, step=1.0, key="dca_daily")
+        with c2:
+            dca_goal = st.selectbox("What are you trying to build?", ["Keep it simple", "Long-term growth", "Core + a little spice", "Income & stability"], key="dca_goal")
+        with c3:
+            dca_risk = st.selectbox("How aggressive?", ["Conservative", "Balanced", "Growth", "Aggressive"], index=2, key="dca_risk")
+
+        model = DCA_MODELS[(dca_goal, dca_risk)]
+        rows=[]
+        for ticker, weight, role in model:
+            rows.append({"ETF": ticker, "Role": role, "Weight": f"{weight}%", "Per Day": f"${daily_amount*weight/100:.2f}", "Per Week": f"${daily_amount*5*weight/100:.2f}"})
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        annual = daily_amount * 252
+        st.caption("Assumes 252 trading days per year. $10 per trading day = about $2,520 per year.")
+        st.metric("Approx. yearly contributions", f"${annual:,.0f}")
+        core_weight = sum(w for _t,w,role in model if "Core" in role or "Broad" in role or "Dividend core" in role)
+        spicy_weight = sum(w for _t,w,role in model if "Spicy" in role or "Theme" in role or "Momentum" in role or "Nasdaq" in role)
+        st.caption(f"This example is about **{core_weight}% core** and **{spicy_weight}% higher-octane satellite** exposure, with the rest used for diversification/stability.")
+
+        dca_facts = "\n".join([
+            f"Trading-day contribution: ${daily_amount:.2f}",
+            f"Goal: {dca_goal}",
+            f"Risk setting: {dca_risk}",
+            f"Approximate annual contribution: ${annual:.0f}",
+            "Allocation: " + "; ".join(f"{t} {w}% ({role})" for t,w,role in model),
+            f"Core weight: {core_weight}%",
+            f"Higher-octane satellite weight: {spicy_weight}%",
+        ])
+        dca_ai = two_sentence_ai_take("DCA model", dca_facts)
+        st.markdown("### ✨ Quick take")
+        st.write(dca_ai or dca_fallback_take(dca_goal, dca_risk, daily_amount, model))
+        if dca_ai is None:
+            st.caption("Plain-English fallback shown. Add an OpenAI API key to Streamlit Secrets to turn this into an AI-generated two-sentence summary.")
+
+    with custom_tab:
+        st.markdown("### Build your own DCA model")
+        st.caption("Add up to 5 stocks or ETFs. The expected CAGR is **your assumption**, not a forecast from Conviction AI.")
+
+        a1, a2, a3 = st.columns(3)
+        with a1:
+            custom_daily = st.number_input("Total amount per trading day", min_value=1.0, max_value=5000.0, value=10.0, step=1.0, key="custom_dca_daily")
+        with a2:
+            starting_balance = st.number_input("Starting balance", min_value=0.0, max_value=10000000.0, value=0.0, step=100.0, key="custom_dca_start")
+        with a3:
+            investment_count = st.selectbox("Number of investments", [1,2,3,4,5], index=2, key="custom_dca_count")
+
+        defaults = [
+            ("VOO", 60.0, 9.0),
+            ("VOOG", 25.0, 10.0),
+            ("SMH", 15.0, 11.0),
+            ("", 0.0, 9.0),
+            ("", 0.0, 9.0),
+        ]
+        custom_rows=[]
+        st.markdown("#### Your investments")
+        for i in range(investment_count):
+            c1, c2, c3 = st.columns([1.1, 1, 1])
+            with c1:
+                ticker = st.text_input(f"Ticker {i+1}", value=defaults[i][0], key=f"custom_ticker_{i}").upper().strip()
+            with c2:
+                weight = st.number_input(f"Weight % {i+1}", min_value=0.0, max_value=100.0, value=defaults[i][1], step=1.0, key=f"custom_weight_{i}")
+            with c3:
+                cagr = st.number_input(f"Expected CAGR % {i+1}", min_value=-20.0, max_value=40.0, value=defaults[i][2], step=0.5, key=f"custom_cagr_{i}")
+            custom_rows.append({"Ticker": ticker, "Weight": weight, "Expected CAGR": cagr})
+
+        total_weight = sum(r["Weight"] for r in custom_rows)
+        if abs(total_weight - 100) > 0.01:
+            st.warning(f"Your weights add up to **{total_weight:.1f}%**. Make them total 100% to calculate the model.")
+        else:
+            blended_cagr = sum(r["Weight"] * r["Expected CAGR"] for r in custom_rows) / 100
+            annual_contribution = custom_daily * 252
+            st.caption("Projection assumes 252 trading days per year.")
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Blended expected CAGR", f"{blended_cagr:.2f}%")
+            c2.metric("Approx. yearly contributions", f"${annual_contribution:,.0f}")
+            c3.metric("Starting balance", f"${starting_balance:,.0f}")
+
+            allocation_rows=[]
+            for r in custom_rows:
+                allocation_rows.append({
+                    "Ticker": r["Ticker"] or "—",
+                    "Weight": f"{r['Weight']:.0f}%",
+                    "Expected CAGR": f"{r['Expected CAGR']:.1f}%",
+                    "Per Day": f"${custom_daily*r['Weight']/100:.2f}",
+                    "Per Year": f"${annual_contribution*r['Weight']/100:,.0f}",
+                })
+            st.dataframe(pd.DataFrame(allocation_rows), use_container_width=True, hide_index=True)
+
+            horizons = [5, 10, 15, 20, 25, 30]
+            projection_rows=[]
+            for years in horizons:
+                value = project_dca(starting_balance, custom_daily, blended_cagr, years)
+                contributed = starting_balance + annual_contribution * years
+                projection_rows.append({
+                    "Years": years,
+                    "Projected Value": value,
+                    "Total Contributed": contributed,
+                    "Estimated Growth": value - contributed,
+                })
+            proj = pd.DataFrame(projection_rows)
+            display_proj = proj.copy()
+            for col in ["Projected Value", "Total Contributed", "Estimated Growth"]:
+                display_proj[col] = display_proj[col].map(lambda x: f"${x:,.0f}")
+            st.markdown("#### What it could grow to")
+            st.dataframe(display_proj, use_container_width=True, hide_index=True)
+
+            chart_data = proj.set_index("Years")[["Projected Value", "Total Contributed"]]
+            st.line_chart(chart_data)
+
+            twenty_year = float(proj.loc[proj["Years"] == 20, "Projected Value"].iloc[0])
+            custom_facts = "\n".join([
+                f"Trading-day contribution: ${custom_daily:.2f}",
+                f"Starting balance: ${starting_balance:.0f}",
+                f"Blended expected CAGR assumption: {blended_cagr:.2f}%",
+                "Holdings: " + "; ".join(f"{r['Ticker']} {r['Weight']:.0f}% at assumed {r['Expected CAGR']:.1f}% CAGR" for r in custom_rows if r['Ticker']),
+                f"20-year projected value: ${twenty_year:.0f}",
+            ])
+            custom_ai = two_sentence_ai_take("custom DCA projection", custom_facts)
+            st.markdown("### ✨ Quick take")
+            st.write(custom_ai or custom_dca_fallback_take(custom_daily, blended_cagr, custom_rows, twenty_year))
+
+            st.caption("Projection assumes steady monthly-equivalent contributions and a constant annual return. It ignores taxes, fees, inflation, and changing market returns.")
 
     with st.expander("What does DCA mean?"):
         st.write("Dollar-cost averaging means investing a fixed dollar amount on a regular schedule instead of trying to guess the perfect day to buy. It can make a long-term plan easier to stick with, but it does not prevent losses.")
-    with st.expander("Why core + satellite?"):
-        st.write("The core is meant to do most of the long-term compounding. Smaller satellite positions can add growth, momentum, sectors, or themes without letting the entire plan depend on one concentrated bet.")
-    st.info("These are educational model allocations, not personalized investment recommendations. A real allocation should also consider time horizon, emergency savings, taxes, and ability to tolerate losses.")
+    with st.expander("How do expected CAGR projections work?"):
+        st.write("CAGR is the annual return assumption used for the projection. A 10% expected CAGR does not mean the investment will earn 10% every year; real markets are uneven, and future returns can be much lower or higher.")
+    st.info("These are educational models, not personalized investment recommendations. A real allocation should also consider time horizon, emergency savings, taxes, diversification, and ability to tolerate losses.")
 
 st.divider()
 st.caption("For research and educational purposes only. Not investment advice.")
