@@ -1,15 +1,23 @@
-# Conviction AI v0.7.6
+# Conviction AI v0.7.7
 
 Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 
-## What is new in v0.7.6
+## v0.7.7 beginner-discovery polish
+
+- **Quality Gem** and **Turnaround Gem** now use visually distinct badges and clearer explanatory copy.
+- **Why Emerging?** now selects the strongest two signal-specific reasons (estimate revisions, relative-strength breakout, revenue/EPS strength, chart health, QoQ score change, or supportive valuation) instead of repeating the same generic phrase.
+- Generic `N/A` labels on the main discovery screens are replaced with plain-English reasons such as **Forward EPS declining**, **Growth estimate unavailable**, **P/E data unavailable**, **No prior quarter**, and **Not enough history**.
+- Added subtle green/amber/red/gray table cues for positive, mixed, negative, and unavailable trend labels.
+- Hidden Gem cards also show a compact status line for estimate revisions and value-vs-growth condition.
+
+## What is new in v0.7.7
 
 - Rebuilt **Hidden Gems** to reduce sector bias and stop financial/asset-management names from dominating discovery.
 - Hidden Gem quality is now partly **sector-relative**, so a company is compared with other companies in its own sector rather than only against universal thresholds.
 - Added **EPS Estimate Revisions** using yfinance EPS trend/revision data. The Hidden Gem card now shows whether estimates are rising, stable, or falling versus roughly 90 days ago.
 - Added **Value vs Growth**, a forward-P/E-versus-forward-EPS-growth score. This replaces raw analyst target upside on the Hidden Gem card.
 - Hidden Gem scoring now emphasizes: 25% quality, 20% estimate revisions, 20% value vs growth, 15% chart health, 10% institutional support, and 10% underfollowedness. Missing data is reweighted, but at least four Hidden Gem evidence groups must be available.
-- Hidden Gems now require a **60+ Hidden Gem Score** after the quality screen.
+- Hidden Gems now require a **65+ Hidden Gem Score** after the quality screen.
 - The discovery pool is limited to **two stocks per sector** before random selection, improving sector diversity.
 - Analyst price-target upside is no longer a Hidden Gem gate or headline metric.
 - Estimate-revision display is capped into beginner-friendly labels when extreme base effects would otherwise create distracting percentages.

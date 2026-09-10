@@ -40,6 +40,12 @@ st.markdown(
     h1 {margin-bottom: .35rem !important;}
     h3 {margin-top: .25rem !important; margin-bottom: .35rem !important;}
     div[data-testid="stAlert"] {border-radius: 12px;}
+    .gem-badge {
+        display: inline-block; padding: .22rem .55rem; border-radius: 999px;
+        font-size: .78rem; font-weight: 700; margin: .15rem 0 .35rem 0;
+    }
+    .gem-quality {background: rgba(46, 160, 67, .14); color: #238636; border: 1px solid rgba(46, 160, 67, .25);}
+    .gem-turnaround {background: rgba(210, 153, 34, .14); color: #9a6700; border: 1px solid rgba(210, 153, 34, .28);}
     @media (max-width: 640px) {
         .block-container {padding-top: 1.25rem; padding-left: 1rem; padding-right: 1rem;}
         h1 {font-size: 2.35rem !important; line-height: 1.05 !important;}
@@ -1339,7 +1345,7 @@ def _growth_trend_label(value):
     """Beginner-friendly display label; raw extreme growth is intentionally hidden."""
     v = clean_num(value)
     if v is None:
-        return "N/A"
+        return "Not enough data"
     if v < 0:
         return "Declining"
     if v < 5:
@@ -1395,7 +1401,7 @@ def _relative_momentum_accel(row, benchmark):
 def _momentum_accel_label(value):
     v = clean_num(value)
     if v is None:
-        return "N/A"
+        return "Not enough history"
     if v < 0:
         return "Lagging"
     if v < 3:
@@ -1410,26 +1416,50 @@ def _momentum_accel_label(value):
 
 
 def _why_emerging(row, qoq_change=None):
-    reasons = []
+    """Pick the two strongest distinct reasons so rows do not all read the same."""
     accel = clean_num(row.get("Momentum Accel"))
     eps = clean_num(row.get("eps_growth"))
     rev = clean_num(row.get("revenue_growth"))
     chart = clean_num(row.get("chart_health"))
-    if accel is not None and accel >= 5:
-        reasons.append("Momentum breakout")
-    elif accel is not None and accel >= 2:
-        reasons.append("Momentum improving")
-    if qoq_change is not None and qoq_change >= 3:
-        reasons.append("QoQ score rising")
-    if (eps is not None and eps >= 15) or (rev is not None and rev >= 12):
-        reasons.append("Growth accelerating")
-    if chart is not None and chart >= 78:
-        reasons.append("Healthy chart")
-    elif chart is not None and chart >= 68:
-        reasons.append("Chart improving")
-    if not reasons:
-        reasons.append("Multiple signals improving")
-    return " + ".join(reasons[:2])
+    revisions = clean_num(row.get("estimate_revision_pct"))
+    pe = clean_num(row.get("forward_pe"))
+    fwd = clean_num(row.get("forward_eps_growth"))
+
+    candidates = []
+    if qoq_change is not None and qoq_change >= 2:
+        candidates.append((95 + min(qoq_change, 10), "QoQ score rising"))
+    if revisions is not None and revisions >= 3:
+        candidates.append((90 + min(revisions, 15) / 2, "EPS estimates rising"))
+    if accel is not None and accel >= 12:
+        candidates.append((88 + min(accel, 25) / 4, "Relative-strength breakout"))
+    elif accel is not None and accel >= 5:
+        candidates.append((80 + accel / 4, "Momentum improving vs S&P 500"))
+    if rev is not None and rev >= 20:
+        candidates.append((84 + min(rev, 60) / 8, "Revenue growth strong"))
+    elif rev is not None and rev >= 10:
+        candidates.append((74 + rev / 10, "Revenue trend improving"))
+    if eps is not None and eps >= 25:
+        candidates.append((82 + min(eps, 60) / 8, "EPS growth strong"))
+    elif eps is not None and eps >= 12:
+        candidates.append((73 + eps / 10, "EPS trend improving"))
+    if chart is not None and chart >= 88:
+        candidates.append((83 + chart / 20, "Very healthy chart"))
+    elif chart is not None and chart >= 75:
+        candidates.append((72 + chart / 25, "Healthy chart"))
+    if pe is not None and fwd is not None and fwd > 0 and pe <= max(20, fwd * 1.25):
+        candidates.append((76, "Valuation supports growth"))
+
+    if not candidates:
+        return "Multiple signals improving"
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    picked = []
+    for _strength, text in candidates:
+        if text not in picked:
+            picked.append(text)
+        if len(picked) == 2:
+            break
+    return " + ".join(picked)
 
 
 def emerging_leader_score(row, qoq_change=None):
@@ -1528,6 +1558,48 @@ def build_emerging_leaders(leaderboard_df, snapshot_df):
     work["Why Emerging?"] = work.apply(lambda r: _why_emerging(r, r.get("QoQ Change")), axis=1)
     work = work.sort_values(["Emerging Score", "score"], ascending=False)
     return work.reset_index(drop=True)
+
+
+
+def _value_vs_growth_display(row):
+    vg = clean_num(row.get("value_vs_growth_score"))
+    if vg is not None:
+        return f"{vg:.0f}/100"
+    fwd = clean_num(row.get("forward_eps_growth"))
+    pe = clean_num(row.get("forward_pe"))
+    if fwd is not None and fwd <= 0:
+        return "Forward EPS declining"
+    if pe is None:
+        return "P/E data unavailable"
+    if fwd is None:
+        return "Growth estimate unavailable"
+    return "Not enough data"
+
+
+def _chart_display(value):
+    v = clean_num(value)
+    return "Not enough history" if v is None else f"{v:.0f}/100"
+
+
+def _trend_cell_style(value):
+    """Subtle beginner-friendly cues for tables; presentation only, never changes scores."""
+    text = str(value).lower()
+    if any(k in text for k in ["rising", "strong", "breakout", "exceptional", "healthy", "attractive", "improving", "quality gem"]):
+        return "background-color: rgba(46,160,67,.10); color: #1f7a35; font-weight: 600;"
+    if any(k in text for k in ["turnaround", "reasonable", "mixed", "flat", "mild", "stable"]):
+        return "background-color: rgba(210,153,34,.10); color: #8a6100; font-weight: 600;"
+    if any(k in text for k in ["declining", "falling", "lagging", "weak"]):
+        return "background-color: rgba(218,54,51,.09); color: #b42318; font-weight: 600;"
+    if any(k in text for k in ["not enough", "unavailable", "no prior", "forward eps declining"]):
+        return "background-color: rgba(110,118,129,.08); color: #6e7781;"
+    return ""
+
+
+def _styled_table(df, cue_columns):
+    cue_columns = [c for c in cue_columns if c in df.columns]
+    if not cue_columns:
+        return df
+    return df.style.map(_trend_cell_style, subset=cue_columns)
 
 # ------------------------------
 # Clean beginner-facing UI
@@ -1777,9 +1849,13 @@ with main_stocks:
             top["Emerging"] = top["Emerging Score"].map(lambda x: f"{x:.1f}")
             top["Conviction"] = top["score"].map(lambda x: f"{x:.1f}")
             top["Momentum Accel"] = top["Momentum Accel"].map(_momentum_accel_label)
-            top["QoQ"] = top["QoQ Change"].map(lambda x: "—" if pd.isna(x) else f"{x:+.1f}")
-            top["Chart"] = top["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
-            st.dataframe(top[["Rank","ticker","company","Emerging","Conviction","Momentum Accel","QoQ","EPS Trend","Revenue Trend","Chart","Why Emerging?"]], use_container_width=True, hide_index=True)
+            top["QoQ"] = top["QoQ Change"].map(lambda x: "No prior quarter" if pd.isna(x) else f"{x:+.1f}")
+            top["Chart"] = top["chart_health"].map(_chart_display)
+            emerging_view = top[["Rank","ticker","company","Emerging","Conviction","Momentum Accel","QoQ","EPS Trend","Revenue Trend","Chart","Why Emerging?"]]
+            st.dataframe(
+                _styled_table(emerging_view, ["Momentum Accel", "QoQ", "EPS Trend", "Revenue Trend", "Why Emerging?"]),
+                use_container_width=True, hide_index=True
+            )
             st.caption("Growth and momentum are shown as normalized labels instead of noisy capped numbers. Momentum acceleration is measured relative to the S&P 500, and each name must show at least two independent improvement signals.")
 
             with st.expander("How Emerging Leaders is different"):
@@ -1826,13 +1902,20 @@ with main_stocks:
         if gem:
             st.divider()
             st.markdown(f"## {gem['ticker']} — {gem['company']}")
-            st.caption(f"**{hidden_gem_type(gem)}** · Randomly selected from companies that passed the Hidden Gem screen. Discovery only — not a recommendation.")
+            gem_type = hidden_gem_type(gem)
+            badge_class = "gem-quality" if gem_type == "Quality Gem" else "gem-turnaround" if gem_type == "Turnaround Gem" else ""
+            badge_icon = "●" if gem_type == "Quality Gem" else "▲" if gem_type == "Turnaround Gem" else "•"
+            st.markdown(f'<span class="gem-badge {badge_class}">{badge_icon} {gem_type}</span>', unsafe_allow_html=True)
+            if gem_type == "Turnaround Gem":
+                st.caption("Forward EPS is still declining, but expectations are improving and other signals are strong. Discovery only — not a recommendation.")
+            else:
+                st.caption("Positive forward growth with sector-relative quality. Randomly selected from companies that passed the Hidden Gem screen. Discovery only — not a recommendation.")
             a, b, c, d = st.columns(4)
             a.metric("Conviction", f"{gem['score']:.1f}/100")
             b.metric("Hidden Gem Score", f"{gem['hidden_gem_score']:.1f}/100")
             rev = clean_num(gem.get("estimate_revision_pct"))
             if rev is None:
-                rev_display = "N/A"
+                rev_display = "Revision data unavailable"
             elif rev > 50:
                 rev_display = "Rising >50%"
             elif rev < -50:
@@ -1852,6 +1935,15 @@ with main_stocks:
             else:
                 vg_display = f"{vg:.0f}/100"
             d.metric("Value vs Growth", vg_display)
+            status_parts = []
+            if rev is not None:
+                status_parts.append("🟢 Estimates rising" if rev > 1 else "🔴 Estimates falling" if rev < -1 else "🟡 Estimates stable")
+            if vg is not None:
+                status_parts.append("🟢 Attractive value/growth" if vg >= 70 else "🟡 Reasonable value/growth" if vg >= 55 else "🔴 Weak value/growth")
+            elif clean_num(gem.get("forward_eps_growth")) is not None and clean_num(gem.get("forward_eps_growth")) <= 0:
+                status_parts.append("🟡 Forward EPS declining")
+            if status_parts:
+                st.caption("  •  ".join(status_parts))
 
             st.markdown("### Why it surfaced")
             st.write("\n".join(f"• {x}" for x in hidden_gem_reasons(gem)))
