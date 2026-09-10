@@ -1139,8 +1139,14 @@ def _quarter_change_map(snapshot_df):
     return dict(zip(m["ticker"].astype(str), m["change"]))
 
 
+def _cap(value, low, high):
+    if value is None:
+        return None
+    return max(low, min(high, float(value)))
+
+
 def emerging_leader_score(row, qoq_change=None):
-    """Acceleration-first discovery score. Absolute Conviction is only a quality floor/ceiling."""
+    """Acceleration-first discovery score with outlier controls and multiple-signal confirmation."""
     score = clean_num(row.get("score"))
     coverage = clean_num(row.get("coverage"))
     chart = clean_num(row.get("chart_health"))
@@ -1152,42 +1158,58 @@ def emerging_leader_score(row, qoq_change=None):
     inst = clean_num(row.get("institutional_ownership"))
     pe = clean_num(row.get("forward_pe"))
 
-    # Emerging Leaders should live below the elite leaderboard, not duplicate it.
+    # Keep this screen clearly below the elite absolute-score leaderboard.
     if score is None or coverage is None or coverage < 7 or score < 58 or score > 82:
         return None
-    if chart is not None and chart < 50:
+    if chart is not None and chart < 52:
         return None
-    if qoq_change is not None and qoq_change < -3:
-        return None
-
-    growth_vals = [x for x in (eps, revenue) if x is not None]
-    best_growth = max(growth_vals) if growth_vals else None
-    if best_growth is not None and best_growth < 0:
+    if qoq_change is not None and qoq_change < -4:
         return None
 
-    # Compare recent returns with the portion of the 12M return that would represent the same time window.
-    # Positive values mean the recent pace is stronger than the longer-term pace.
+    # Cap extreme growth so base effects / one-time rebounds cannot dominate the model.
+    eps_c = _cap(eps, -30, 60)
+    rev_c = _cap(revenue, -20, 60)
+    growth_vals = [x for x in (eps_c, rev_c) if x is not None]
+    if not growth_vals:
+        growth_quality = None
+    else:
+        positive = [max(0, x) for x in growth_vals]
+        # Average available growth signals instead of taking the single biggest number.
+        growth_quality = sum(positive) / len(positive)
+
+    # Recent pace versus the comparable slice of the 12-month return.
     accel_3m = None if m3 is None or m12 is None else m3 - (m12 / 4.0)
     accel_6m = None if m6 is None or m12 is None else m6 - (m12 / 2.0)
     accel_vals = [x for x in (accel_3m, accel_6m) if x is not None]
     momentum_accel = sum(accel_vals) / len(accel_vals) if accel_vals else None
+    momentum_accel = _cap(momentum_accel, -10, 25)
 
-    # Require some evidence of improvement when enough data exists.
-    if momentum_accel is not None and momentum_accel < -2 and (qoq_change is None or qoq_change <= 0):
+    # Require at least two independent signs of improvement/strength.
+    signals = 0
+    if momentum_accel is not None and momentum_accel >= 3:
+        signals += 1
+    if qoq_change is not None and qoq_change >= 2:
+        signals += 1
+    if growth_quality is not None and growth_quality >= 10:
+        signals += 1
+    if chart is not None and chart >= 68:
+        signals += 1
+    if signals < 2:
         return None
 
-    accel_score = normalize(momentum_accel, -3, 18) if momentum_accel is not None else None
-    qoq_score = normalize(qoq_change, -2, 12) if qoq_change is not None else None
-    growth_score = normalize(best_growth, 0, 35) if best_growth is not None else None
-    chart_score = normalize(chart, 50, 90) if chart is not None else None
+    # Component scores intentionally have conservative ceilings.
+    accel_score = None if momentum_accel is None else min(92, normalize(momentum_accel, -5, 20))
+    qoq_score = None if qoq_change is None else min(92, normalize(_cap(qoq_change, -5, 15), -3, 12))
+    growth_score = None if growth_quality is None else min(90, normalize(growth_quality, 0, 50))
+    chart_score = None if chart is None else min(90, normalize(chart, 52, 92))
 
-    # Confirmation only: ownership level and reasonable valuation should not dominate the discovery score.
-    inst_confirm = normalize(inst, 25, 90) if inst is not None else None
+    # Confirmation remains a small input only.
+    inst_confirm = normalize(inst, 30, 90) if inst is not None else None
     val_confirm = None
     if pe is not None and pe > 0:
-        val_confirm = curve_score(pe, [(10, 90), (18, 82), (25, 70), (35, 55), (50, 35), (80, 10)])
+        val_confirm = curve_score(pe, [(10, 88), (18, 80), (25, 68), (35, 52), (50, 34), (80, 10)])
     confirms = [x for x in (inst_confirm, val_confirm) if x is not None]
-    confirm_score = sum(confirms)/len(confirms) if confirms else None
+    confirm_score = sum(confirms) / len(confirms) if confirms else None
 
     pieces = [
         (accel_score, 0.30),
@@ -1199,7 +1221,14 @@ def emerging_leader_score(row, qoq_change=None):
     usable = [(v, w) for v, w in pieces if v is not None]
     if len(usable) < 3:
         return None
-    return round(sum(v*w for v,w in usable) / sum(w for _,w in usable), 1)
+
+    raw = sum(v*w for v,w in usable) / sum(w for _,w in usable)
+
+    # Recalibrate the public score so 95+ is truly rare.
+    # Most valid candidates should land around 65-85.
+    calibrated = 55 + (raw - 50) * 0.75
+    calibrated += min(4, max(0, signals - 2) * 2)
+    return round(max(55, min(94, calibrated)), 1)
 
 
 def build_emerging_leaders(leaderboard_df, snapshot_df):
@@ -1213,17 +1242,19 @@ def build_emerging_leaders(leaderboard_df, snapshot_df):
     work = work[~work["ticker"].astype(str).isin(top20)].copy()
 
     work["QoQ Change"] = work["ticker"].map(changes)
-    work["Momentum Accel"] = work.apply(
-        lambda r: (
-            sum([x for x in [
-                (clean_num(r.get("momentum_3m")) - clean_num(r.get("one_year_return"))/4.0) if clean_num(r.get("momentum_3m")) is not None and clean_num(r.get("one_year_return")) is not None else None,
-                (clean_num(r.get("momentum_6m")) - clean_num(r.get("one_year_return"))/2.0) if clean_num(r.get("momentum_6m")) is not None and clean_num(r.get("one_year_return")) is not None else None,
-            ] if x is not None]) / max(1, len([x for x in [
-                (clean_num(r.get("momentum_3m")) - clean_num(r.get("one_year_return"))/4.0) if clean_num(r.get("momentum_3m")) is not None and clean_num(r.get("one_year_return")) is not None else None,
-                (clean_num(r.get("momentum_6m")) - clean_num(r.get("one_year_return"))/2.0) if clean_num(r.get("momentum_6m")) is not None and clean_num(r.get("one_year_return")) is not None else None,
-            ] if x is not None]))
-        ), axis=1
-    )
+
+    def _mom_accel(r):
+        m3 = clean_num(r.get("momentum_3m"))
+        m6 = clean_num(r.get("momentum_6m"))
+        m12 = clean_num(r.get("one_year_return"))
+        vals = []
+        if m3 is not None and m12 is not None:
+            vals.append(m3 - m12/4.0)
+        if m6 is not None and m12 is not None:
+            vals.append(m6 - m12/2.0)
+        return None if not vals else _cap(sum(vals)/len(vals), -10, 25)
+
+    work["Momentum Accel"] = work.apply(_mom_accel, axis=1)
     work["Emerging Score"] = work.apply(lambda r: emerging_leader_score(r, r.get("QoQ Change")), axis=1)
     work = work.dropna(subset=["Emerging Score"]).sort_values(["Emerging Score", "score"], ascending=False)
     return work.reset_index(drop=True)
@@ -1461,7 +1492,7 @@ with main_stocks:
 
     with emerging_tab:
         st.markdown("### 🚀 Emerging Leaders")
-        st.caption("Companies whose setup is **accelerating**. Current Top 20 Conviction names are excluded so this list stays different from Market Leaders.")
+        st.caption("Companies whose setup is **accelerating**, not simply the highest-scoring companies. Current Top 20 Conviction names are excluded, and at least two improvement signals are required.")
         leaderboard_df = st.session_state.get("leaderboard_df", pd.DataFrame())
         snapshots = load_snapshots()
         emerging = build_emerging_leaders(leaderboard_df, snapshots)
@@ -1474,13 +1505,13 @@ with main_stocks:
             top.insert(0, "Rank", range(1, len(top)+1))
             top["Emerging"] = top["Emerging Score"].map(lambda x: f"{x:.1f}")
             top["Conviction"] = top["score"].map(lambda x: f"{x:.1f}")
-            top["Recent Pace"] = top["Momentum Accel"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f} pts")
+            top["Momentum Accel"] = top["Momentum Accel"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f} pts")
             top["QoQ"] = top["QoQ Change"].map(lambda x: "—" if pd.isna(x) else f"{x:+.1f}")
-            top["Growth"] = top.apply(lambda r: max([x for x in [clean_num(r.get("eps_growth")), clean_num(r.get("revenue_growth"))] if x is not None] or [None]), axis=1)
-            top["Growth"] = top["Growth"].map(lambda x: "N/A" if x is None or pd.isna(x) else f"{x:+.1f}%")
+            top["EPS Growth"] = top["eps_growth"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
+            top["Revenue Growth"] = top["revenue_growth"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
             top["Chart"] = top["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
-            st.dataframe(top[["Rank","ticker","company","Emerging","Conviction","Recent Pace","QoQ","Growth","Chart"]], use_container_width=True, hide_index=True)
-            st.caption("Emerging Score emphasizes recent momentum acceleration, quarterly score improvement, current growth, and chart health. Conviction is mainly a quality floor—not the ranking engine.")
+            st.dataframe(top[["Rank","ticker","company","Emerging","Conviction","Momentum Accel","QoQ","EPS Growth","Revenue Growth","Chart"]], use_container_width=True, hide_index=True)
+            st.caption("Emerging Score now requires at least two independent signs of improvement. Extreme growth is capped so one-time EPS rebounds cannot dominate the ranking; 90+ should be rare.")
 
             with st.expander("How Emerging Leaders is different"):
                 st.markdown(

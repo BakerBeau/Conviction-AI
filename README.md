@@ -1,4 +1,4 @@
-# Conviction AI v0.7.2
+# Conviction AI v0.7.3
 
 Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 
@@ -59,7 +59,7 @@ Daily DCA inputs are treated as trading-day contributions using 252 trading days
 - Multi-holding projections compound each holding using its own expected CAGR and sum the results.
 
 
-## v0.7.2 scoring calibration
+## v0.7.3 scoring calibration
 - EPS growth is much harder to max out; 20-30% growth now scores as strong rather than perfect.
 - Revenue growth, margins, and ROIC use tougher piecewise curves.
 - Valuation is growth-adjusted using forward P/E plus a PEG-like growth relationship.
@@ -72,8 +72,16 @@ Daily DCA inputs are treated as trading-day contributions using 252 trading days
 - Goal: make 90+ scores rare and make the 65-85 range more informative.
 
 
-## v0.7.2 Emerging Leaders recalibration
+## v0.7.3 Emerging Leaders recalibration
 - Excludes the current Top 20 Conviction stocks so Emerging Leaders cannot duplicate Market Leaders.
 - Focuses on acceleration rather than absolute score.
 - Uses recent momentum pace vs 12-month pace, QoQ Conviction change when available, current growth, chart health, and light valuation/institutional confirmation.
 - Keeps candidates mostly in the 58-82 Conviction band with at least 7/10 factor coverage.
+
+
+## v0.7.3 Emerging Leaders recalibration
+- Caps EPS/revenue growth inputs to reduce one-time/base-effect distortions.
+- Requires at least two independent improvement signals.
+- Separates EPS Growth and Revenue Growth in the table.
+- Recalibrates Emerging Scores so 90+ is rare.
+- Renames Recent Pace to Momentum Accel for clearer interpretation.
