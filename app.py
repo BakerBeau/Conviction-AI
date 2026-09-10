@@ -338,6 +338,98 @@ def analyst_conviction(info):
     return round(sum(p*w for p, w in good) / denom, 1)
 
 
+def _analysis_row(df, preferred_rows, column):
+    """Read a numeric cell from a yfinance analyst DataFrame defensively."""
+    if df is None or getattr(df, "empty", True):
+        return None
+    for row in preferred_rows:
+        if row in df.index and column in df.columns:
+            return clean_num(df.loc[row, column])
+    return None
+
+
+def estimate_revision_metrics(ticker_obj):
+    """Return 90d EPS estimate revision %, 30d revision breadth, and a 0-100 revision score."""
+    try:
+        trend = ticker_obj.get_eps_trend()
+    except Exception:
+        trend = pd.DataFrame()
+    try:
+        revisions = ticker_obj.get_eps_revisions()
+    except Exception:
+        revisions = pd.DataFrame()
+
+    current = _analysis_row(trend, ["+1y", "0y", "+1q", "0q"], "current")
+    prior90 = _analysis_row(trend, ["+1y", "0y", "+1q", "0q"], "90daysAgo")
+    if prior90 is None:
+        prior90 = _analysis_row(trend, ["+1y", "0y", "+1q", "0q"], "60daysAgo")
+    if prior90 is None:
+        prior90 = _analysis_row(trend, ["+1y", "0y", "+1q", "0q"], "30daysAgo")
+
+    revision_pct = None
+    if current is not None and prior90 not in (None, 0):
+        # Use change relative to the magnitude of the prior estimate so negative EPS estimates behave sensibly.
+        revision_pct = (current - prior90) / abs(prior90) * 100
+
+    up30 = _analysis_row(revisions, ["+1y", "0y", "+1q", "0q"], "upLast30days")
+    down30 = _analysis_row(revisions, ["+1y", "0y", "+1q", "0q"], "downLast30days")
+    breadth = None
+    if up30 is not None or down30 is not None:
+        breadth = (up30 or 0.0) - (down30 or 0.0)
+
+    parts = []
+    if revision_pct is not None:
+        parts.append((curve_score(revision_pct, [(-20, 5), (-10, 18), (-5, 32), (0, 50), (3, 62), (6, 74), (10, 86), (15, 94), (25, 100)]), 0.72))
+    if breadth is not None:
+        parts.append((curve_score(breadth, [(-8, 10), (-4, 25), (-2, 38), (0, 50), (2, 64), (4, 78), (7, 92), (10, 100)]), 0.28))
+    if not parts:
+        return None, None, None
+    denom = sum(w for _, w in parts)
+    score = sum(v * w for v, w in parts) / denom
+    return revision_pct, breadth, round(max(0.0, min(100.0, score)), 1)
+
+
+def forward_growth_metrics(ticker_obj, fallback_eps_growth=None):
+    """Get a forward EPS growth estimate and convert valuation-vs-growth into a 0-100 score."""
+    forward_growth = None
+    try:
+        est = ticker_obj.get_earnings_estimate()
+        raw = _analysis_row(est, ["+1y", "0y"], "growth")
+        if raw is not None:
+            forward_growth = raw * 100 if abs(raw) <= 3 else raw
+    except Exception:
+        pass
+
+    if forward_growth is None:
+        try:
+            growth = ticker_obj.get_growth_estimates()
+            raw = _analysis_row(growth, ["+5y", "+1y"], "stock")
+            if raw is not None:
+                forward_growth = raw * 100 if abs(raw) <= 3 else raw
+        except Exception:
+            pass
+
+    if forward_growth is None:
+        forward_growth = clean_num(fallback_eps_growth)
+    return forward_growth
+
+
+def value_vs_growth_score(forward_pe, forward_growth):
+    pe = clean_num(forward_pe)
+    growth = clean_num(forward_growth)
+    if pe is None or pe <= 0 or growth is None or growth <= 0:
+        return None
+    # PEG-like comparison, intentionally capped so tiny denominators cannot create absurd scores.
+    g = max(3.0, min(growth, 60.0))
+    peg = pe / g
+    score = curve_score(peg, [(0.35, 98), (0.6, 92), (0.85, 84), (1.0, 78), (1.25, 68), (1.5, 58), (2.0, 43), (2.75, 28), (4.0, 12)])
+    if pe > 60:
+        score = min(score, 55.0)
+    elif pe > 45:
+        score = min(score, 68.0)
+    return round(score, 1)
+
+
 @st.cache_data(ttl=900, show_spinner=False)
 def fetch_stock(symbol, cache_bust=None):
     t = yf.Ticker(symbol)
@@ -376,8 +468,13 @@ def fetch_stock(symbol, cache_bust=None):
     except Exception:
         insiders = pd.DataFrame()
 
+    revision_pct, revision_breadth, revision_score = estimate_revision_metrics(t)
+    raw_eps_growth = pct(info.get("earningsGrowth"))
+    forward_eps_growth = forward_growth_metrics(t, fallback_eps_growth=raw_eps_growth)
+    value_growth = value_vs_growth_score(clean_num(info.get("forwardPE")), forward_eps_growth)
+
     metrics = {
-        "eps_growth": pct(info.get("earningsGrowth")),
+        "eps_growth": raw_eps_growth,
         "revenue_growth": pct(info.get("revenueGrowth")),
         "net_margin": pct(info.get("profitMargins")),
         "roic": calc_roic(fin, bs),
@@ -390,6 +487,11 @@ def fetch_stock(symbol, cache_bust=None):
         "momentum_6m": momentum_period(hist, 126),
         "momentum_3m": momentum_period(hist, 63),
         "chart_health": chart_health(hist),
+        "estimate_revision_pct": revision_pct,
+        "estimate_revision_breadth": revision_breadth,
+        "estimate_revision_score": revision_score,
+        "forward_eps_growth": forward_eps_growth,
+        "value_vs_growth_score": value_growth,
     }
 
     return {
@@ -443,7 +545,7 @@ def score_stock(m):
 @st.cache_data(ttl=86400, show_spinner=False)
 def fetch_index_universe(index_name):
     """Refresh index membership from public constituent tables; return a stable fallback if unavailable."""
-    headers = {"User-Agent": "Mozilla/5.0 ConvictionAI/0.7.1"}
+    headers = {"User-Agent": "Mozilla/5.0 ConvictionAI/0.7.5"}
     if index_name == "S&P 500":
         url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
         expected = {"Symbol", "Security"}
@@ -655,6 +757,8 @@ def scan_universe(tickers, workers=8, progress_callback=None):
         return {
             "ticker": ticker,
             "company": result["company"],
+            "sector": result.get("sector") or "Other",
+            "industry": result.get("industry") or "—",
             "score": round(score, 2),
             "coverage": coverage,
             "market_cap": result.get("market_cap"),
@@ -670,6 +774,11 @@ def scan_universe(tickers, workers=8, progress_callback=None):
             "momentum_6m": result["metrics"].get("momentum_6m"),
             "one_year_return": result["metrics"].get("momentum"),
             "forward_pe": result["metrics"].get("forward_pe"),
+            "estimate_revision_pct": result["metrics"].get("estimate_revision_pct"),
+            "estimate_revision_breadth": result["metrics"].get("estimate_revision_breadth"),
+            "estimate_revision_score": result["metrics"].get("estimate_revision_score"),
+            "forward_eps_growth": result["metrics"].get("forward_eps_growth"),
+            "value_vs_growth_score": result["metrics"].get("value_vs_growth_score"),
             "target_mean": result.get("target_mean"),
             "price": result.get("price"),
             "fetched_at": result["fetched_at"],
@@ -694,8 +803,31 @@ def scan_universe(tickers, workers=8, progress_callback=None):
     return pd.DataFrame(rows).sort_values("score", ascending=False).reset_index(drop=True)
 
 
+def add_sector_relative_hidden_features(df):
+    """Add sector-relative percentiles so one sector's natural economics do not dominate Hidden Gems."""
+    if df is None or df.empty:
+        return df
+    work = df.copy()
+    if "sector" not in work.columns:
+        work["sector"] = "Other"
+    work["sector"] = work["sector"].fillna("Other").replace("—", "Other")
+
+    for col, out in [
+        ("score", "sector_quality_pct"),
+        ("value_vs_growth_score", "sector_value_pct"),
+        ("chart_health", "sector_chart_pct"),
+    ]:
+        vals = pd.to_numeric(work.get(col), errors="coerce")
+        work[col] = vals
+        work[out] = work.groupby("sector")[col].rank(pct=True, method="average") * 100
+        # Tiny sector samples are not trustworthy percentiles; fall back toward neutral.
+        counts = work.groupby("sector")[col].transform("count")
+        work.loc[counts < 3, out] = 50.0
+    return work
+
+
 def hidden_gem_score(row):
-    """Score established, relatively underfollowed S&P 500 companies without requiring a perfect checklist."""
+    """Hidden Gem = quality first, then revisions/value/technical health and relative underfollowedness."""
     score = clean_num(row.get("score"))
     coverage = clean_num(row.get("coverage"))
     market_cap = clean_num(row.get("market_cap"))
@@ -704,90 +836,116 @@ def hidden_gem_score(row):
     eps = clean_num(row.get("eps_growth"))
     revenue = clean_num(row.get("revenue_growth"))
     inst = clean_num(row.get("institutional_ownership"))
-    upside = clean_num(row.get("analyst_upside"))
     insider = clean_num(row.get("insider_activity"))
+    revision = clean_num(row.get("estimate_revision_score"))
+    value_growth = clean_num(row.get("value_vs_growth_score"))
+    sector_quality = clean_num(row.get("sector_quality_pct"))
+    sector_value = clean_num(row.get("sector_value_pct"))
 
-    # Hard floor: enough real data and enough overall quality to be worth discovering.
-    if score is None or score < 67 or coverage is None or coverage < 7:
+    # Quality floor only. Analyst price targets are intentionally NOT a gate.
+    if score is None or score < 66 or coverage is None or coverage < 7:
         return None
-    if market_cap is None or not (2e9 <= market_cap <= 250e9):
+    if market_cap is None or not (2e9 <= market_cap <= 300e9):
         return None
-    if analysts is None or not (6 <= analysts <= 30):
+    if analysts is None or not (5 <= analysts <= 35):
         return None
-    if chart is None or chart < 55:
+    if chart is None or chart < 52:
         return None
 
-    # Growth should be healthy, but we no longer require both growth lines to be perfect.
     growth_values = [x for x in (eps, revenue) if x is not None]
-    if not growth_values or max(growth_values) < 5:
+    if not growth_values or max(growth_values) < 4:
         return None
-    if len(growth_values) == 2 and eps < -5 and revenue < -5:
+    if len(growth_values) == 2 and eps < -8 and revenue < -8:
         return None
-
-    # Avoid clear red flags while allowing neutral / missing signals.
-    if inst is not None and inst < 25:
-        return None
-    if upside is not None and upside < 0:
+    if inst is not None and inst < 20:
         return None
     if insider is not None and insider < -5:
         return None
 
-    # Rank rather than over-filter: quality + underfollowed + technical health + upside/growth.
-    analyst_underfollowed = normalize(analysts, 6, 30, reverse=True)
-    cap_underfollowed = normalize(math.log10(market_cap), math.log10(2e9), math.log10(250e9), reverse=True)
-    quality = normalize(score, 67, 90)
-    chart_part = normalize(chart, 55, 90)
-    growth_best = max(growth_values) if growth_values else None
-    growth_part = normalize(growth_best, 5, 30) if growth_best is not None else None
-    upside_part = normalize(upside, 0, 30) if upside is not None else None
+    # 25% quality; 20% estimate revisions; 20% value vs growth; 15% chart; 10% institutional support; 10% underfollowed.
+    absolute_quality = normalize(score, 66, 88)
+    quality = absolute_quality
+    if sector_quality is not None and absolute_quality is not None:
+        quality = 0.60 * absolute_quality + 0.40 * sector_quality
+
+    vg = value_growth
+    if value_growth is not None and sector_value is not None:
+        vg = 0.65 * value_growth + 0.35 * sector_value
+
+    chart_part = normalize(chart, 52, 92)
+    inst_part = institutional_score(inst) if inst is not None else None
+    analyst_underfollowed = curve_score(analysts, [(5, 92), (8, 88), (12, 78), (18, 65), (25, 50), (35, 35)])
+    cap_underfollowed = normalize(math.log10(market_cap), math.log10(2e9), math.log10(300e9), reverse=True)
+    underfollowed = 0.60 * analyst_underfollowed + 0.40 * cap_underfollowed
 
     parts = [
-        (quality, 0.30),
-        (analyst_underfollowed, 0.20),
-        (cap_underfollowed, 0.18),
-        (chart_part, 0.14),
-        (growth_part, 0.10),
-        (upside_part, 0.08),
+        (quality, 0.25),
+        (revision, 0.20),
+        (vg, 0.20),
+        (chart_part, 0.15),
+        (inst_part, 0.10),
+        (underfollowed, 0.10),
     ]
     usable = [(v, w) for v, w in parts if v is not None]
-    if not usable:
+    # Require enough specific Hidden Gem evidence; otherwise the generic Conviction score is doing too much work.
+    if len(usable) < 4:
         return None
-    return round(sum(v*w for v, w in usable) / sum(w for v, w in usable), 1)
+    result = sum(v*w for v, w in usable) / sum(w for v, w in usable)
+    return round(max(0.0, min(100.0, result)), 1)
 
 
 def hidden_gem_reasons(row):
     reasons = []
     score = clean_num(row.get("score"))
-    eps = clean_num(row.get("eps_growth"))
-    revenue = clean_num(row.get("revenue_growth"))
-    upside = clean_num(row.get("analyst_upside"))
+    revision_pct = clean_num(row.get("estimate_revision_pct"))
+    revision_score = clean_num(row.get("estimate_revision_score"))
+    vg = clean_num(row.get("value_vs_growth_score"))
+    fwd_growth = clean_num(row.get("forward_eps_growth"))
+    pe = clean_num(row.get("forward_pe"))
     analysts = clean_num(row.get("analyst_count"))
     chart = clean_num(row.get("chart_health"))
-    inst = clean_num(row.get("institutional_ownership"))
-    market_cap = clean_num(row.get("market_cap"))
-    if score is not None: reasons.append(f"Conviction Score {score:.1f}/100")
-    if eps is not None and eps >= 10: reasons.append(f"EPS growth {eps:+.1f}%")
-    elif revenue is not None and revenue >= 10: reasons.append(f"Revenue growth {revenue:+.1f}%")
-    if chart is not None: reasons.append(f"Chart health {chart:.0f}/100")
-    if upside is not None: reasons.append(f"Analyst target upside {upside:+.1f}%")
-    if analysts is not None: reasons.append(f"Only {int(analysts)} analysts covering it")
-    if inst is not None and inst >= 35: reasons.append(f"Institutional ownership {inst:.0f}%")
-    if market_cap is not None: reasons.append(f"Market cap {market_cap_fmt(market_cap)}")
+    sector = row.get("sector") or "its sector"
+    sector_quality = clean_num(row.get("sector_quality_pct"))
+
+    if score is not None:
+        reasons.append(f"Conviction Score {score:.1f}/100")
+    if sector_quality is not None and sector_quality >= 65:
+        reasons.append(f"Quality ranks well versus other {sector} companies")
+    if revision_pct is not None:
+        direction = "rising" if revision_pct > 1 else "falling" if revision_pct < -1 else "stable"
+        shown = ">+50%" if revision_pct > 50 else "<-50%" if revision_pct < -50 else f"{revision_pct:+.1f}%"
+        reasons.append(f"EPS estimates are {direction} ({shown} vs ~90 days ago)")
+    elif revision_score is not None:
+        reasons.append(f"Estimate revision score {revision_score:.0f}/100")
+    if vg is not None:
+        label_vg = "Attractive" if vg >= 70 else "Reasonable" if vg >= 55 else "Mixed"
+        reasons.append(f"Value vs growth: {label_vg} ({vg:.0f}/100)")
+    elif pe is not None and fwd_growth is not None:
+        reasons.append(f"Forward P/E {pe:.1f}x vs expected EPS growth {fwd_growth:.1f}%")
+    if chart is not None:
+        reasons.append(f"Chart health {chart:.0f}/100")
+    if analysts is not None:
+        reasons.append(f"Moderate coverage: {int(analysts)} analysts")
     return reasons[:5]
 
 
 def pick_hidden_gem_from_df(df):
     if df is None or df.empty:
         return None, pd.DataFrame()
-    work = df.copy()
+    work = add_sector_relative_hidden_features(df.copy())
     work["hidden_gem_score"] = work.apply(hidden_gem_score, axis=1)
     pool = work.dropna(subset=["hidden_gem_score"]).copy()
+    pool = pool[pool["hidden_gem_score"] >= 60].copy()
     if pool.empty:
         return None, pool
-    # Keep randomness, but bias the draw toward stronger underfollowed candidates.
-    top_pool = pool.sort_values("hidden_gem_score", ascending=False).head(min(25, len(pool)))
+
+    # Sector diversification: at most two qualifying names per sector in the discovery pool.
+    pool = pool.sort_values(["hidden_gem_score", "score"], ascending=False)
+    diversified = pool.groupby("sector", group_keys=False).head(2).copy()
+    diversified = diversified.sort_values("hidden_gem_score", ascending=False)
+    top_pool = diversified.head(min(30, len(diversified)))
     row = top_pool.sample(1).iloc[0].to_dict()
-    return row, pool.sort_values("hidden_gem_score", ascending=False)
+    return row, diversified
 
 
 def lightweight_hidden_gem_scan(sample_size=120, workers=6, progress_callback=None):
@@ -1100,16 +1258,18 @@ def two_sentence_ai_take(kind, facts):
 
 
 def hidden_gem_fallback_take(gem):
+    ticker = gem.get("ticker", "This company")
     score = clean_num(gem.get("score"))
     chart = clean_num(gem.get("chart_health"))
-    growth = max([x for x in [clean_num(gem.get("eps_growth")), clean_num(gem.get("revenue_growth"))] if x is not None] or [None])
-    parts = []
-    if score is not None: parts.append(f"a {score:.0f}/100 Conviction Score")
-    if chart is not None: parts.append(f"{chart:.0f}/100 chart health")
-    if growth is not None: parts.append(f"growth running as high as {growth:.1f}%")
-    first = f"{gem.get('ticker','This company')} surfaced because it combines " + (", ".join(parts) if parts else "several solid quality signals") + "."
-    second = "It is a discovery candidate rather than a recommendation, so the next step is checking the full 10-factor breakdown and understanding what could weaken the thesis."
-    return first + " " + second
+    rev = clean_num(gem.get("estimate_revision_pct"))
+    vg = clean_num(gem.get("value_vs_growth_score"))
+    pieces = []
+    if score is not None: pieces.append(f"a {score:.0f}/100 Conviction Score")
+    if rev is not None: pieces.append(f"EPS estimates {('rising' if rev > 1 else 'roughly stable' if rev >= -1 else 'falling')} by {rev:+.1f}% versus roughly 90 days ago")
+    if vg is not None: pieces.append(f"a {vg:.0f}/100 value-vs-growth score")
+    if chart is not None: pieces.append(f"{chart:.0f}/100 chart health")
+    evidence = ", ".join(pieces[:3]) if pieces else "several quality signals"
+    return f"{ticker} surfaced because it combines {evidence}. It is a discovery candidate rather than a recommendation, so the next step is reviewing the full 10-factor breakdown and the risks that could weaken the thesis."
 
 
 def dca_fallback_take(goal, risk, daily_amount, model):
@@ -1145,14 +1305,91 @@ def _cap(value, low, high):
     return max(low, min(high, float(value)))
 
 
-def emerging_leader_score(row, qoq_change=None):
-    """Acceleration-first discovery score with outlier controls and multiple-signal confirmation."""
-    score = clean_num(row.get("score"))
-    coverage = clean_num(row.get("coverage"))
-    chart = clean_num(row.get("chart_health"))
+def _growth_trend_label(value):
+    """Beginner-friendly display label; raw extreme growth is intentionally hidden."""
+    v = clean_num(value)
+    if v is None:
+        return "N/A"
+    if v < 0:
+        return "Declining"
+    if v < 5:
+        return "Flat"
+    if v < 15:
+        return "Improving"
+    if v < 30:
+        return "Strong"
+    if v < 60:
+        return "Very strong"
+    return "Exceptional (capped)"
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _benchmark_momentum():
+    """S&P 500 momentum used so Emerging Leaders rewards market-relative acceleration."""
+    try:
+        hist = yf.Ticker("SPY").history(period="1y", auto_adjust=True)
+        return {
+            "m3": momentum_period(hist, 63),
+            "m6": momentum_period(hist, 126),
+            "m12": momentum_12m(hist),
+        }
+    except Exception:
+        return {"m3": None, "m6": None, "m12": None}
+
+
+def _relative_momentum_accel(row, benchmark):
+    """Acceleration versus both the stock's own 12M pace and the S&P 500's recent pace."""
     m3 = clean_num(row.get("momentum_3m"))
     m6 = clean_num(row.get("momentum_6m"))
     m12 = clean_num(row.get("one_year_return"))
+    b3, b6, b12 = (clean_num(benchmark.get(k)) for k in ("m3", "m6", "m12"))
+
+    parts = []
+    # Own-pacing acceleration.
+    if m3 is not None and m12 is not None:
+        own3 = m3 - m12 / 4.0
+        if b3 is not None and b12 is not None:
+            own3 -= (b3 - b12 / 4.0)
+        parts.append(own3)
+    if m6 is not None and m12 is not None:
+        own6 = m6 - m12 / 2.0
+        if b6 is not None and b12 is not None:
+            own6 -= (b6 - b12 / 2.0)
+        parts.append(own6)
+    if not parts:
+        return None
+    # Gentle winsorization only for pathological prints; public display remains differentiated.
+    return _cap(sum(parts) / len(parts), -20, 20)
+
+
+def _why_emerging(row, qoq_change=None):
+    reasons = []
+    accel = clean_num(row.get("Momentum Accel"))
+    eps = clean_num(row.get("eps_growth"))
+    rev = clean_num(row.get("revenue_growth"))
+    chart = clean_num(row.get("chart_health"))
+    if accel is not None and accel >= 5:
+        reasons.append("Momentum breakout")
+    elif accel is not None and accel >= 2:
+        reasons.append("Momentum improving")
+    if qoq_change is not None and qoq_change >= 3:
+        reasons.append("QoQ score rising")
+    if (eps is not None and eps >= 15) or (rev is not None and rev >= 12):
+        reasons.append("Growth accelerating")
+    if chart is not None and chart >= 78:
+        reasons.append("Healthy chart")
+    elif chart is not None and chart >= 68:
+        reasons.append("Chart improving")
+    if not reasons:
+        reasons.append("Multiple signals improving")
+    return " + ".join(reasons[:2])
+
+
+def emerging_leader_score(row, qoq_change=None):
+    score = clean_num(row.get("score"))
+    coverage = clean_num(row.get("coverage"))
+    chart = clean_num(row.get("chart_health"))
+    momentum_accel = clean_num(row.get("Momentum Accel"))
     eps = clean_num(row.get("eps_growth"))
     revenue = clean_num(row.get("revenue_growth"))
     inst = clean_num(row.get("institutional_ownership"))
@@ -1166,27 +1403,15 @@ def emerging_leader_score(row, qoq_change=None):
     if qoq_change is not None and qoq_change < -4:
         return None
 
-    # Cap extreme growth so base effects / one-time rebounds cannot dominate the model.
+    # Extreme base-effect growth is capped for scoring, and raw spikes are not shown in the table.
     eps_c = _cap(eps, -30, 60)
     rev_c = _cap(revenue, -20, 60)
     growth_vals = [x for x in (eps_c, rev_c) if x is not None]
-    if not growth_vals:
-        growth_quality = None
-    else:
-        positive = [max(0, x) for x in growth_vals]
-        # Average available growth signals instead of taking the single biggest number.
-        growth_quality = sum(positive) / len(positive)
-
-    # Recent pace versus the comparable slice of the 12-month return.
-    accel_3m = None if m3 is None or m12 is None else m3 - (m12 / 4.0)
-    accel_6m = None if m6 is None or m12 is None else m6 - (m12 / 2.0)
-    accel_vals = [x for x in (accel_3m, accel_6m) if x is not None]
-    momentum_accel = sum(accel_vals) / len(accel_vals) if accel_vals else None
-    momentum_accel = _cap(momentum_accel, -10, 25)
+    growth_quality = None if not growth_vals else sum(max(0, x) for x in growth_vals) / len(growth_vals)
 
     # Require at least two independent signs of improvement/strength.
     signals = 0
-    if momentum_accel is not None and momentum_accel >= 3:
+    if momentum_accel is not None and momentum_accel >= 2.5:
         signals += 1
     if qoq_change is not None and qoq_change >= 2:
         signals += 1
@@ -1197,11 +1422,19 @@ def emerging_leader_score(row, qoq_change=None):
     if signals < 2:
         return None
 
-    # Component scores intentionally have conservative ceilings.
-    accel_score = None if momentum_accel is None else min(92, normalize(momentum_accel, -5, 20))
-    qoq_score = None if qoq_change is None else min(92, normalize(_cap(qoq_change, -5, 15), -3, 12))
-    growth_score = None if growth_quality is None else min(90, normalize(growth_quality, 0, 50))
-    chart_score = None if chart is None else min(90, normalize(chart, 52, 92))
+    # Smooth curves avoid the old +25 ceiling pile-up and keep 90+ rare.
+    accel_score = None if momentum_accel is None else curve_score(momentum_accel, [
+        (-10, 15), (-5, 30), (0, 48), (2, 56), (5, 66), (8, 75), (12, 84), (16, 90), (20, 94)
+    ])
+    qoq_score = None if qoq_change is None else curve_score(_cap(qoq_change, -8, 18), [
+        (-5, 20), (0, 48), (2, 60), (5, 74), (8, 84), (12, 91), (18, 95)
+    ])
+    growth_score = None if growth_quality is None else curve_score(growth_quality, [
+        (0, 35), (5, 45), (10, 56), (20, 69), (30, 78), (45, 87), (60, 92)
+    ])
+    chart_score = None if chart is None else curve_score(chart, [
+        (52, 35), (60, 48), (68, 60), (75, 70), (82, 79), (90, 88), (100, 94)
+    ])
 
     # Confirmation remains a small input only.
     inst_confirm = normalize(inst, 30, 90) if inst is not None else None
@@ -1223,12 +1456,9 @@ def emerging_leader_score(row, qoq_change=None):
         return None
 
     raw = sum(v*w for v,w in usable) / sum(w for _,w in usable)
-
-    # Recalibrate the public score so 95+ is truly rare.
-    # Most valid candidates should land around 65-85.
-    calibrated = 55 + (raw - 50) * 0.75
-    calibrated += min(4, max(0, signals - 2) * 2)
-    return round(max(55, min(94, calibrated)), 1)
+    calibrated = 52 + (raw - 50) * 0.72
+    calibrated += min(3, max(0, signals - 2) * 1.5)
+    return round(max(55, min(93, calibrated)), 1)
 
 
 def build_emerging_leaders(leaderboard_df, snapshot_df):
@@ -1240,23 +1470,16 @@ def build_emerging_leaders(leaderboard_df, snapshot_df):
     # Hard separation: current Top 20 by Conviction can never appear as Emerging Leaders.
     top20 = set(work.sort_values("score", ascending=False).head(20)["ticker"].astype(str))
     work = work[~work["ticker"].astype(str).isin(top20)].copy()
-
     work["QoQ Change"] = work["ticker"].map(changes)
 
-    def _mom_accel(r):
-        m3 = clean_num(r.get("momentum_3m"))
-        m6 = clean_num(r.get("momentum_6m"))
-        m12 = clean_num(r.get("one_year_return"))
-        vals = []
-        if m3 is not None and m12 is not None:
-            vals.append(m3 - m12/4.0)
-        if m6 is not None and m12 is not None:
-            vals.append(m6 - m12/2.0)
-        return None if not vals else _cap(sum(vals)/len(vals), -10, 25)
-
-    work["Momentum Accel"] = work.apply(_mom_accel, axis=1)
+    benchmark = _benchmark_momentum()
+    work["Momentum Accel"] = work.apply(lambda r: _relative_momentum_accel(r, benchmark), axis=1)
     work["Emerging Score"] = work.apply(lambda r: emerging_leader_score(r, r.get("QoQ Change")), axis=1)
-    work = work.dropna(subset=["Emerging Score"]).sort_values(["Emerging Score", "score"], ascending=False)
+    work = work.dropna(subset=["Emerging Score"]).copy()
+    work["EPS Trend"] = work["eps_growth"].map(_growth_trend_label)
+    work["Revenue Trend"] = work["revenue_growth"].map(_growth_trend_label)
+    work["Why Emerging?"] = work.apply(lambda r: _why_emerging(r, r.get("QoQ Change")), axis=1)
+    work = work.sort_values(["Emerging Score", "score"], ascending=False)
     return work.reset_index(drop=True)
 
 # ------------------------------
@@ -1505,13 +1728,11 @@ with main_stocks:
             top.insert(0, "Rank", range(1, len(top)+1))
             top["Emerging"] = top["Emerging Score"].map(lambda x: f"{x:.1f}")
             top["Conviction"] = top["score"].map(lambda x: f"{x:.1f}")
-            top["Momentum Accel"] = top["Momentum Accel"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f} pts")
+            top["Momentum Accel"] = top["Momentum Accel"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f} vs S&P")
             top["QoQ"] = top["QoQ Change"].map(lambda x: "—" if pd.isna(x) else f"{x:+.1f}")
-            top["EPS Growth"] = top["eps_growth"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
-            top["Revenue Growth"] = top["revenue_growth"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
             top["Chart"] = top["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
-            st.dataframe(top[["Rank","ticker","company","Emerging","Conviction","Momentum Accel","QoQ","EPS Growth","Revenue Growth","Chart"]], use_container_width=True, hide_index=True)
-            st.caption("Emerging Score now requires at least two independent signs of improvement. Extreme growth is capped so one-time EPS rebounds cannot dominate the ranking; 90+ should be rare.")
+            st.dataframe(top[["Rank","ticker","company","Emerging","Conviction","Momentum Accel","QoQ","EPS Trend","Revenue Trend","Chart","Why Emerging?"]], use_container_width=True, hide_index=True)
+            st.caption("Growth is shown as a normalized trend label instead of noisy raw spikes. Momentum acceleration is measured relative to the S&P 500, and each name must show at least two independent improvement signals.")
 
             with st.expander("How Emerging Leaders is different"):
                 st.markdown(
@@ -1523,13 +1744,13 @@ with main_stocks:
 
     with hidden_tab:
         st.markdown("### 💎 Hidden Gems")
-        st.caption("Discover an established S&P 500 company with strong fundamentals that may be getting less attention than the mega-cap names.")
+        st.caption("Discover an established S&P 500 company that looks unusually attractive versus its sector while receiving less attention than the obvious mega-cap names.")
 
         with st.expander("What counts as a Hidden Gem?"):
             st.markdown(
-                "A company must have about a **67+ Conviction Score**, at least **7/10 data factors**, roughly **$2B–$250B market cap**, "
-                "**6–30 covering analysts**, **55+ chart health**, at least one healthy growth signal, and no major negative institutional/insider signal. "
-                "The final pick is randomized from the qualifying pool. Low trading volume by itself is **not** considered a positive signal."
+                "A company needs a solid quality floor, at least **7/10 data factors**, moderate analyst coverage, healthy growth and chart signals, and no obvious red flags. "
+                "Hidden Gem scoring then emphasizes **sector-relative quality, EPS estimate revisions, value vs growth, chart health, institutional support, and underfollowedness**. "
+                "Only names with a **60+ Hidden Gem Score** enter the randomizer, and the pool is capped at **two names per sector** so one industry cannot dominate."
             )
 
         c1, c2 = st.columns([2, 1])
@@ -1561,8 +1782,22 @@ with main_stocks:
             a, b, c, d = st.columns(4)
             a.metric("Conviction", f"{gem['score']:.1f}/100")
             b.metric("Hidden Gem Score", f"{gem['hidden_gem_score']:.1f}/100")
-            c.metric("Analyst Upside", "N/A" if pd.isna(gem.get("analyst_upside")) else f"{gem['analyst_upside']:+.1f}%")
-            d.metric("Chart Health", "N/A" if pd.isna(gem.get("chart_health")) else f"{gem['chart_health']:.0f}/100")
+            rev = clean_num(gem.get("estimate_revision_pct"))
+            if rev is None:
+                rev_display = "N/A"
+            elif rev > 50:
+                rev_display = "Rising >50%"
+            elif rev < -50:
+                rev_display = "Falling >50%"
+            elif rev > 1:
+                rev_display = f"Rising {rev:+.1f}%"
+            elif rev < -1:
+                rev_display = f"Falling {rev:+.1f}%"
+            else:
+                rev_display = "Stable"
+            c.metric("Estimate Revisions", rev_display)
+            vg = clean_num(gem.get("value_vs_growth_score"))
+            d.metric("Value vs Growth", "N/A" if vg is None else f"{vg:.0f}/100")
 
             st.markdown("### Why it surfaced")
             st.write("\n".join(f"• {x}" for x in hidden_gem_reasons(gem)))
@@ -1576,7 +1811,11 @@ with main_stocks:
                 f"Revenue growth: {clean_num(gem.get('revenue_growth'))}%",
                 f"Chart health: {clean_num(gem.get('chart_health'))}/100",
                 f"12M return: {clean_num(gem.get('one_year_return'))}%",
-                f"Analyst upside: {clean_num(gem.get('analyst_upside'))}%",
+                f"Sector: {gem.get('sector')}",
+                f"EPS estimate revision vs roughly 90 days ago: {clean_num(gem.get('estimate_revision_pct'))}%",
+                f"Estimate revision score: {clean_num(gem.get('estimate_revision_score'))}/100",
+                f"Forward EPS growth estimate: {clean_num(gem.get('forward_eps_growth'))}%",
+                f"Value vs growth score: {clean_num(gem.get('value_vs_growth_score'))}/100",
                 f"Analyst count: {clean_num(gem.get('analyst_count'))}",
             ])
             ai_take = two_sentence_ai_take("Hidden Gem", facts)

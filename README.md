@@ -1,33 +1,22 @@
-# Conviction AI v0.7.3
+# Conviction AI v0.7.5
 
 Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 
-## What is new in v0.6.7
+## What is new in v0.7.5
 
-- New **Emerging Leaders** stock-discovery tab between Market Leaders and Hidden Gems.
-- Emerging Leaders ranks stocks that may not be Top 10 yet but show a useful mix of Conviction Score, chart health, momentum, growth, institutional support, and quarter-to-quarter score improvement when history exists.
-- New optional **2-sentence AI Quick Take** for Hidden Gems.
-- New optional **2-sentence AI Quick Take** for DCA model allocations.
-- AI summaries are constrained to the facts already calculated by Conviction AI and are instructed not to invent facts or issue buy/sell commands.
-- If no OpenAI API key is configured, the app automatically shows a plain-English local fallback summary instead, so nothing breaks.
+- Rebuilt **Hidden Gems** to reduce sector bias and stop financial/asset-management names from dominating discovery.
+- Hidden Gem quality is now partly **sector-relative**, so a company is compared with other companies in its own sector rather than only against universal thresholds.
+- Added **EPS Estimate Revisions** using yfinance EPS trend/revision data. The Hidden Gem card now shows whether estimates are rising, stable, or falling versus roughly 90 days ago.
+- Added **Value vs Growth**, a forward-P/E-versus-forward-EPS-growth score. This replaces raw analyst target upside on the Hidden Gem card.
+- Hidden Gem scoring now emphasizes: 25% quality, 20% estimate revisions, 20% value vs growth, 15% chart health, 10% institutional support, and 10% underfollowedness. Missing data is reweighted, but at least four Hidden Gem evidence groups must be available.
+- Hidden Gems now require a **60+ Hidden Gem Score** after the quality screen.
+- The discovery pool is limited to **two stocks per sector** before random selection, improving sector diversity.
+- Analyst price-target upside is no longer a Hidden Gem gate or headline metric.
+- Estimate-revision display is capped into beginner-friendly labels when extreme base effects would otherwise create distracting percentages.
 
-## Turn on the AI summaries
+## Data note
 
-Do **not** put your API key in GitHub.
-
-In Streamlit Community Cloud, open your app settings and add this to **Secrets**:
-
-```toml
-OPENAI_API_KEY = "your_api_key_here"
-```
-
-Optional model override:
-
-```toml
-OPENAI_MODEL = "gpt-5-mini"
-```
-
-The app uses OpenAI's Responses API. AI output is cached for 24 hours for the same set of facts to reduce repeat API calls.
+Estimate revisions use yfinance's EPS trend and EPS revision datasets when available. Forward growth uses yfinance earnings estimates or growth estimates when available, with a fallback to reported EPS growth. Free market-data feeds can be incomplete or delayed, so missing signals are handled conservatively.
 
 ## Run locally
 
@@ -85,3 +74,10 @@ Daily DCA inputs are treated as trading-day contributions using 252 trading days
 - Separates EPS Growth and Revenue Growth in the table.
 - Recalibrates Emerging Scores so 90+ is rare.
 - Renames Recent Pace to Momentum Accel for clearer interpretation.
+
+
+## v0.7.5 Emerging Leaders display cleanup
+- Raw extreme EPS/revenue spikes are hidden from the leaderboard and replaced with beginner-friendly trend labels.
+- Momentum acceleration is now relative to the S&P 500 and uses a smooth scoring curve instead of piling up at a hard +25 cap.
+- Added a concise **Why Emerging?** explanation for every candidate.
+- Preserves the v0.7.4 Hidden Gems sector-relative/revisions/value-vs-growth rebuild.
