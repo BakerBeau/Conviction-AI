@@ -666,7 +666,10 @@ def scan_universe(tickers, workers=8, progress_callback=None):
             "institutional_ownership": result["metrics"].get("institutional_ownership"),
             "insider_activity": result["metrics"].get("insider_activity"),
             "chart_health": result["metrics"].get("chart_health"),
+            "momentum_3m": result["metrics"].get("momentum_3m"),
+            "momentum_6m": result["metrics"].get("momentum_6m"),
             "one_year_return": result["metrics"].get("momentum"),
+            "forward_pe": result["metrics"].get("forward_pe"),
             "target_mean": result.get("target_mean"),
             "price": result.get("price"),
             "fetched_at": result["fetched_at"],
@@ -1137,35 +1140,64 @@ def _quarter_change_map(snapshot_df):
 
 
 def emerging_leader_score(row, qoq_change=None):
-    """Rank quality companies that are not necessarily Top-10 or Hidden Gems but show improving operating/market signals."""
+    """Acceleration-first discovery score. Absolute Conviction is only a quality floor/ceiling."""
     score = clean_num(row.get("score"))
     coverage = clean_num(row.get("coverage"))
     chart = clean_num(row.get("chart_health"))
-    momentum = clean_num(row.get("one_year_return"))
+    m3 = clean_num(row.get("momentum_3m"))
+    m6 = clean_num(row.get("momentum_6m"))
+    m12 = clean_num(row.get("one_year_return"))
     eps = clean_num(row.get("eps_growth"))
     revenue = clean_num(row.get("revenue_growth"))
     inst = clean_num(row.get("institutional_ownership"))
-    if score is None or coverage is None or coverage < 7 or score < 62:
+    pe = clean_num(row.get("forward_pe"))
+
+    # Emerging Leaders should live below the elite leaderboard, not duplicate it.
+    if score is None or coverage is None or coverage < 7 or score < 58 or score > 82:
         return None
-    # Keep this as the layer beneath the elite current leaderboard rather than duplicating it.
-    if score >= 88:
+    if chart is not None and chart < 50:
         return None
+    if qoq_change is not None and qoq_change < -3:
+        return None
+
     growth_vals = [x for x in (eps, revenue) if x is not None]
     best_growth = max(growth_vals) if growth_vals else None
-    if chart is not None and chart < 45:
+    if best_growth is not None and best_growth < 0:
         return None
-    if momentum is not None and momentum < -15:
+
+    # Compare recent returns with the portion of the 12M return that would represent the same time window.
+    # Positive values mean the recent pace is stronger than the longer-term pace.
+    accel_3m = None if m3 is None or m12 is None else m3 - (m12 / 4.0)
+    accel_6m = None if m6 is None or m12 is None else m6 - (m12 / 2.0)
+    accel_vals = [x for x in (accel_3m, accel_6m) if x is not None]
+    momentum_accel = sum(accel_vals) / len(accel_vals) if accel_vals else None
+
+    # Require some evidence of improvement when enough data exists.
+    if momentum_accel is not None and momentum_accel < -2 and (qoq_change is None or qoq_change <= 0):
         return None
+
+    accel_score = normalize(momentum_accel, -3, 18) if momentum_accel is not None else None
+    qoq_score = normalize(qoq_change, -2, 12) if qoq_change is not None else None
+    growth_score = normalize(best_growth, 0, 35) if best_growth is not None else None
+    chart_score = normalize(chart, 50, 90) if chart is not None else None
+
+    # Confirmation only: ownership level and reasonable valuation should not dominate the discovery score.
+    inst_confirm = normalize(inst, 25, 90) if inst is not None else None
+    val_confirm = None
+    if pe is not None and pe > 0:
+        val_confirm = curve_score(pe, [(10, 90), (18, 82), (25, 70), (35, 55), (50, 35), (80, 10)])
+    confirms = [x for x in (inst_confirm, val_confirm) if x is not None]
+    confirm_score = sum(confirms)/len(confirms) if confirms else None
+
     pieces = [
-        (normalize(score, 62, 88), 0.34),
-        (normalize(chart, 45, 90) if chart is not None else None, 0.20),
-        (normalize(momentum, -10, 35) if momentum is not None else None, 0.14),
-        (normalize(best_growth, 0, 35) if best_growth is not None else None, 0.14),
-        (normalize(inst, 25, 90) if inst is not None else None, 0.08),
-        (normalize(qoq_change, -5, 12) if qoq_change is not None else None, 0.10),
+        (accel_score, 0.30),
+        (qoq_score, 0.20),
+        (growth_score, 0.20),
+        (chart_score, 0.20),
+        (confirm_score, 0.10),
     ]
-    usable = [(v,w) for v,w in pieces if v is not None]
-    if not usable:
+    usable = [(v, w) for v, w in pieces if v is not None]
+    if len(usable) < 3:
         return None
     return round(sum(v*w for v,w in usable) / sum(w for _,w in usable), 1)
 
@@ -1175,7 +1207,23 @@ def build_emerging_leaders(leaderboard_df, snapshot_df):
         return pd.DataFrame()
     changes = _quarter_change_map(snapshot_df)
     work = leaderboard_df.copy()
+
+    # Hard separation: current Top 20 by Conviction can never appear as Emerging Leaders.
+    top20 = set(work.sort_values("score", ascending=False).head(20)["ticker"].astype(str))
+    work = work[~work["ticker"].astype(str).isin(top20)].copy()
+
     work["QoQ Change"] = work["ticker"].map(changes)
+    work["Momentum Accel"] = work.apply(
+        lambda r: (
+            sum([x for x in [
+                (clean_num(r.get("momentum_3m")) - clean_num(r.get("one_year_return"))/4.0) if clean_num(r.get("momentum_3m")) is not None and clean_num(r.get("one_year_return")) is not None else None,
+                (clean_num(r.get("momentum_6m")) - clean_num(r.get("one_year_return"))/2.0) if clean_num(r.get("momentum_6m")) is not None and clean_num(r.get("one_year_return")) is not None else None,
+            ] if x is not None]) / max(1, len([x for x in [
+                (clean_num(r.get("momentum_3m")) - clean_num(r.get("one_year_return"))/4.0) if clean_num(r.get("momentum_3m")) is not None and clean_num(r.get("one_year_return")) is not None else None,
+                (clean_num(r.get("momentum_6m")) - clean_num(r.get("one_year_return"))/2.0) if clean_num(r.get("momentum_6m")) is not None and clean_num(r.get("one_year_return")) is not None else None,
+            ] if x is not None]))
+        ), axis=1
+    )
     work["Emerging Score"] = work.apply(lambda r: emerging_leader_score(r, r.get("QoQ Change")), axis=1)
     work = work.dropna(subset=["Emerging Score"]).sort_values(["Emerging Score", "score"], ascending=False)
     return work.reset_index(drop=True)
@@ -1413,26 +1461,33 @@ with main_stocks:
 
     with emerging_tab:
         st.markdown("### 🚀 Emerging Leaders")
-        st.caption("Strong companies that may be improving before they reach the absolute Top 10. This fills the gap between established market leaders and smaller Hidden Gems.")
+        st.caption("Companies whose setup is **accelerating**. Current Top 20 Conviction names are excluded so this list stays different from Market Leaders.")
         leaderboard_df = st.session_state.get("leaderboard_df", pd.DataFrame())
         snapshots = load_snapshots()
         emerging = build_emerging_leaders(leaderboard_df, snapshots)
         if leaderboard_df.empty:
             st.info("Go to **Market Leaders** and run **Refresh market scan** first. Emerging Leaders uses that same full-market scan—no second wait.")
         elif emerging.empty:
-            st.info("This scan did not produce enough Emerging Leader candidates. Refresh the market scan later as scores and chart trends change.")
+            st.info("No clear acceleration candidates surfaced in this scan. That is okay—this screen is intentionally selective rather than duplicating Top Stocks.")
         else:
             top = emerging.head(15).copy()
             top.insert(0, "Rank", range(1, len(top)+1))
-            top["Conviction"] = top["score"].map(lambda x: f"{x:.1f}")
             top["Emerging"] = top["Emerging Score"].map(lambda x: f"{x:.1f}")
-            top["Chart"] = top["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
-            top["1Y Return"] = top["one_year_return"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
-            top["Growth"] = top.apply(lambda r: max([x for x in [clean_num(r.get("eps_growth")), clean_num(r.get("revenue_growth"))] if x is not None] or [None]), axis=1)
-            top["Growth"] = top["Growth"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f}%")
+            top["Conviction"] = top["score"].map(lambda x: f"{x:.1f}")
+            top["Recent Pace"] = top["Momentum Accel"].map(lambda x: "N/A" if pd.isna(x) else f"{x:+.1f} pts")
             top["QoQ"] = top["QoQ Change"].map(lambda x: "—" if pd.isna(x) else f"{x:+.1f}")
-            st.dataframe(top[["Rank","ticker","company","Emerging","Conviction","Chart","1Y Return","Growth","QoQ"]], use_container_width=True, hide_index=True)
-            st.caption("Emerging Score blends current Conviction, chart health, momentum, growth, institutional support, and quarterly score improvement when history exists. It is a discovery ranking, not a buy list.")
+            top["Growth"] = top.apply(lambda r: max([x for x in [clean_num(r.get("eps_growth")), clean_num(r.get("revenue_growth"))] if x is not None] or [None]), axis=1)
+            top["Growth"] = top["Growth"].map(lambda x: "N/A" if x is None or pd.isna(x) else f"{x:+.1f}%")
+            top["Chart"] = top["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
+            st.dataframe(top[["Rank","ticker","company","Emerging","Conviction","Recent Pace","QoQ","Growth","Chart"]], use_container_width=True, hide_index=True)
+            st.caption("Emerging Score emphasizes recent momentum acceleration, quarterly score improvement, current growth, and chart health. Conviction is mainly a quality floor—not the ranking engine.")
+
+            with st.expander("How Emerging Leaders is different"):
+                st.markdown(
+                    "**Top Stocks** = strongest absolute Conviction Scores today.  \n"
+                    "**Emerging Leaders** = improving setups outside the current Top 20.  \n"
+                    "**Hidden Gems** = quality companies that are relatively less followed."
+                )
 
 
     with hidden_tab:
