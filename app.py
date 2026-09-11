@@ -41,11 +41,12 @@ st.markdown(
     h3 {margin-top: .25rem !important; margin-bottom: .35rem !important;}
     div[data-testid="stAlert"] {border-radius: 12px;}
     .gem-badge {
-        display: inline-block; padding: .22rem .55rem; border-radius: 999px;
-        font-size: .78rem; font-weight: 700; margin: .15rem 0 .35rem 0;
+        display: inline-block; padding: .34rem .72rem; border-radius: 999px;
+        font-size: .88rem; font-weight: 800; letter-spacing: .015em;
+        margin: .10rem 0 .45rem 0; box-shadow: 0 1px 2px rgba(0,0,0,.08);
     }
-    .gem-quality {background: rgba(46, 160, 67, .14); color: #238636; border: 1px solid rgba(46, 160, 67, .25);}
-    .gem-turnaround {background: rgba(210, 153, 34, .14); color: #9a6700; border: 1px solid rgba(210, 153, 34, .28);}
+    .gem-quality {background: rgba(46, 160, 67, .18); color: #1f7a35; border: 1px solid rgba(46, 160, 67, .36);}
+    .gem-turnaround {background: rgba(210, 153, 34, .20); color: #8a5a00; border: 1px solid rgba(210, 153, 34, .40);}
     @media (max-width: 640px) {
         .block-container {padding-top: 1.25rem; padding-left: 1rem; padding-right: 1rem;}
         h1 {font-size: 2.35rem !important; line-height: 1.05 !important;}
@@ -1004,11 +1005,11 @@ def label(score):
 
 
 def fmt(v, suffix="%", digits=1):
-    return "N/A" if v is None else f"{v:,.{digits}f}{suffix}"
+    return "Data unavailable" if v is None else f"{v:,.{digits}f}{suffix}"
 
 
 def market_cap_fmt(v):
-    if v is None: return "N/A"
+    if v is None: return "Data unavailable"
     for n, s in [(1e12, "T"), (1e9, "B"), (1e6, "M")]:
         if abs(v) >= n: return f"${v/n:.2f}{s}"
     return f"${v:,.0f}"
@@ -1342,7 +1343,7 @@ def _cap(value, low, high):
 
 
 def _growth_trend_label(value):
-    """Beginner-friendly display label; raw extreme growth is intentionally hidden."""
+    """Beginner-friendly trend buckets. Exceptional is intentionally rare."""
     v = clean_num(value)
     if v is None:
         return "Not enough data"
@@ -1354,8 +1355,10 @@ def _growth_trend_label(value):
         return "Improving"
     if v < 30:
         return "Strong"
-    if v < 60:
+    if v < 75:
         return "Very strong"
+    if v < 120:
+        return "Exceptional"
     return "Exceptional (capped)"
 
 
@@ -1408,15 +1411,15 @@ def _momentum_accel_label(value):
         return "Mild"
     if v < 7:
         return "Improving"
-    if v < 12:
+    if v < 13:
         return "Strong"
-    if v < 18:
+    if v < 24:
         return "Breakout"
     return "Exceptional"
 
 
 def _why_emerging(row, qoq_change=None):
-    """Pick the two strongest distinct reasons so rows do not all read the same."""
+    """Return two compact, signal-specific tags for beginner scanning."""
     accel = clean_num(row.get("Momentum Accel"))
     eps = clean_num(row.get("eps_growth"))
     rev = clean_num(row.get("revenue_growth"))
@@ -1427,30 +1430,30 @@ def _why_emerging(row, qoq_change=None):
 
     candidates = []
     if qoq_change is not None and qoq_change >= 2:
-        candidates.append((95 + min(qoq_change, 10), "QoQ score rising"))
+        candidates.append((100 + min(qoq_change, 10), "QoQ score ↑"))
     if revisions is not None and revisions >= 3:
-        candidates.append((90 + min(revisions, 15) / 2, "EPS estimates rising"))
-    if accel is not None and accel >= 12:
-        candidates.append((88 + min(accel, 25) / 4, "Relative-strength breakout"))
+        candidates.append((96 + min(revisions, 20) / 3, "Estimates ↑"))
+    if accel is not None and accel >= 13:
+        candidates.append((92 + min(accel, 30) / 5, "Relative strength"))
     elif accel is not None and accel >= 5:
-        candidates.append((80 + accel / 4, "Momentum improving vs S&P 500"))
+        candidates.append((82 + accel / 5, "Momentum ↑"))
     if rev is not None and rev >= 20:
-        candidates.append((84 + min(rev, 60) / 8, "Revenue growth strong"))
+        candidates.append((89 + min(rev, 75) / 10, "Revenue acceleration"))
     elif rev is not None and rev >= 10:
-        candidates.append((74 + rev / 10, "Revenue trend improving"))
-    if eps is not None and eps >= 25:
-        candidates.append((82 + min(eps, 60) / 8, "EPS growth strong"))
+        candidates.append((78 + rev / 12, "Revenue ↑"))
+    if eps is not None and eps >= 30:
+        candidates.append((87 + min(eps, 75) / 10, "EPS strength"))
     elif eps is not None and eps >= 12:
-        candidates.append((73 + eps / 10, "EPS trend improving"))
-    if chart is not None and chart >= 88:
-        candidates.append((83 + chart / 20, "Very healthy chart"))
-    elif chart is not None and chart >= 75:
-        candidates.append((72 + chart / 25, "Healthy chart"))
+        candidates.append((77 + eps / 12, "EPS improving"))
+    if chart is not None and chart >= 90:
+        candidates.append((86 + chart / 25, "Healthy chart"))
+    elif chart is not None and chart >= 78:
+        candidates.append((74 + chart / 30, "Chart improving"))
     if pe is not None and fwd is not None and fwd > 0 and pe <= max(20, fwd * 1.25):
-        candidates.append((76, "Valuation supports growth"))
+        candidates.append((80, "Valuation support"))
 
     if not candidates:
-        return "Multiple signals improving"
+        return "Multiple signals"
 
     candidates.sort(key=lambda x: x[0], reverse=True)
     picked = []
@@ -1459,8 +1462,7 @@ def _why_emerging(row, qoq_change=None):
             picked.append(text)
         if len(picked) == 2:
             break
-    return " + ".join(picked)
-
+    return " · ".join(picked)
 
 def emerging_leader_score(row, qoq_change=None):
     score = clean_num(row.get("score"))
@@ -1624,9 +1626,9 @@ def render_stock_result(symbol, force=False):
     st.caption(f"{result['sector']} • {result['industry']} • Updated {result['fetched_at']}")
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Conviction Score", "N/A" if score is None else f"{score:.1f}/100")
+    c1.metric("Conviction Score", "Not enough data" if score is None else f"{score:.1f}/100")
     c2.metric("Rating", label(score))
-    c3.metric("Price", "N/A" if result["price"] is None else f"${result['price']:,.2f}")
+    c3.metric("Price", "Price unavailable" if result["price"] is None else f"${result['price']:,.2f}")
     c4.metric("Data Coverage", f"{available}/10")
 
     if available < 7:
@@ -1637,9 +1639,9 @@ def render_stock_result(symbol, force=False):
 
     c5, c6, c7, c8 = st.columns(4)
     c5.metric("Market Cap", market_cap_fmt(result["market_cap"]))
-    c6.metric("Mean Analyst Target", "N/A" if result["target_mean"] is None else f"${result['target_mean']:,.2f}")
+    c6.metric("Mean Analyst Target", "Target unavailable" if result["target_mean"] is None else f"${result['target_mean']:,.2f}")
     c7.metric("Target Upside", fmt(m["analyst_upside"]))
-    c8.metric("Analysts", "N/A" if result["analyst_count"] is None else f"{int(result['analyst_count'])}")
+    c8.metric("Analysts", "Coverage unavailable" if result["analyst_count"] is None else f"{int(result['analyst_count'])}")
 
     metric_rows = [
         ("EPS Growth", m["eps_growth"], "%"),
@@ -1657,8 +1659,8 @@ def render_stock_result(symbol, force=False):
     table = pd.DataFrame([
         {
             "Factor": name,
-            "Live Value": "N/A" if value is None else (f"{value:.1f}x" if unit == "x" else f"{value:.1f}{unit}"),
-            "Factor Score": "N/A" if raw_scores.get(name) is None else f"{raw_scores[name]:.0f}/100",
+            "Live Value": "Data unavailable" if value is None else (f"{value:.1f}x" if unit == "x" else f"{value:.1f}{unit}"),
+            "Factor Score": "Not enough data" if raw_scores.get(name) is None else f"{raw_scores[name]:.0f}/100",
             "Weight": f"{WEIGHTS[name]:.0%}",
         }
         for name, value, unit in metric_rows
@@ -1777,10 +1779,11 @@ with main_stocks:
                 top10["Score"] = top10["score"].map(lambda x: f"{x:.1f}")
                 top10["Coverage"] = top10["coverage"].map(lambda x: f"{int(x)}/10")
                 top10["EPS Trend"] = top10["eps_growth"].map(_growth_trend_label)
-                top10["Value vs Growth"] = top10["value_vs_growth_score"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
-                top10["Chart Health"] = top10["chart_health"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.0f}/100")
+                top10["Value vs Growth"] = top10.apply(_value_vs_growth_display, axis=1)
+                top10["Chart Health"] = top10["chart_health"].map(_chart_display)
+                top_view = top10[["Rank", "ticker", "company", "Score", "Coverage", "EPS Trend", "Value vs Growth", "Chart Health"]]
                 st.dataframe(
-                    top10[["Rank", "ticker", "company", "Score", "Coverage", "EPS Trend", "Value vs Growth", "Chart Health"]],
+                    _styled_table(top_view, ["EPS Trend", "Value vs Growth"]),
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -1826,8 +1829,8 @@ with main_stocks:
                 else:
                     show = opp.copy()
                     show.insert(0, "Rank", range(1, len(show) + 1))
-                    show["Price"] = show["price"].map(lambda x: "N/A" if pd.isna(x) else f"${x:,.2f}")
-                    show["Mean Target"] = show["target_mean"].map(lambda x: "N/A" if pd.isna(x) else f"${x:,.2f}")
+                    show["Price"] = show["price"].map(lambda x: "Price unavailable" if pd.isna(x) else f"${x:,.2f}")
+                    show["Mean Target"] = show["target_mean"].map(lambda x: "Target unavailable" if pd.isna(x) else f"${x:,.2f}")
                     show["Upside"] = show["analyst_upside"].map(lambda x: f"{x:+.1f}%")
                     show["Analysts"] = show["analyst_count"].map(lambda x: f"{int(x)}")
                     st.dataframe(show[["Rank", "ticker", "company", "Price", "Mean Target", "Upside", "Analysts"]], use_container_width=True, hide_index=True)
@@ -2010,15 +2013,15 @@ with main_etfs:
                 st.subheader(f"{row[1]} ({etf_lookup})")
                 st.caption(" • ".join(etf_tags(row)))
                 c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("YTD", "N/A" if m.get("ytd") is None else f"{m['ytd']:+.1f}%")
-                c2.metric("1Y", "N/A" if m.get("1Y") is None else f"{m['1Y']:+.1f}%")
-                c3.metric("3Y CAGR", "N/A" if m.get("3Y") is None else f"{m['3Y']:.1f}%")
-                c4.metric("5Y CAGR", "N/A" if m.get("5Y") is None else f"{m['5Y']:.1f}%")
-                c5.metric("10Y CAGR", "N/A" if m.get("10Y") is None else f"{m['10Y']:.1f}%")
+                c1.metric("YTD", "History unavailable" if m.get("ytd") is None else f"{m['ytd']:+.1f}%")
+                c2.metric("1Y", "History unavailable" if m.get("1Y") is None else f"{m['1Y']:+.1f}%")
+                c3.metric("3Y CAGR", "Not enough history" if m.get("3Y") is None else f"{m['3Y']:.1f}%")
+                c4.metric("5Y CAGR", "Not enough history" if m.get("5Y") is None else f"{m['5Y']:.1f}%")
+                c5.metric("10Y CAGR", "Not enough history" if m.get("10Y") is None else f"{m['10Y']:.1f}%")
                 e1, e2, e3 = st.columns(3)
-                e1.metric("Expense Ratio", "N/A" if m.get("expense_ratio") is None else f"{m['expense_ratio']:.2f}%")
-                e2.metric("5Y Volatility", "N/A" if m.get("volatility_5y") is None else f"{m['volatility_5y']:.1f}%")
-                e3.metric("5Y Max Drawdown", "N/A" if m.get("max_drawdown_5y") is None else f"{m['max_drawdown_5y']:.1f}%")
+                e1.metric("Expense Ratio", "Fund data unavailable" if m.get("expense_ratio") is None else f"{m['expense_ratio']:.2f}%")
+                e2.metric("5Y Volatility", "Not enough history" if m.get("volatility_5y") is None else f"{m['volatility_5y']:.1f}%")
+                e3.metric("5Y Max Drawdown", "Not enough history" if m.get("max_drawdown_5y") is None else f"{m['max_drawdown_5y']:.1f}%")
             else:
                 st.warning("That ETF is not in the curated universe yet.")
         else:
@@ -2045,7 +2048,7 @@ with main_etfs:
                 df = pd.DataFrame(rows)
                 display = df.copy()
                 for col in ["YTD", "1Y", "3Y CAGR", "5Y CAGR", "10Y CAGR", "Expense Ratio", "5Y Volatility", "5Y Max Drawdown"]:
-                    display[col] = display[col].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
+                    display[col] = display[col].map(lambda x: "Not enough history" if pd.isna(x) else f"{x:.1f}%")
                 st.dataframe(display, use_container_width=True, hide_index=True)
                 numeric = df.set_index("ETF")
                 callouts=[]
@@ -2085,7 +2088,7 @@ with main_etfs:
             else:
                 ranked.insert(0, "Rank", range(1, len(ranked)+1))
                 ranked["Return"] = ranked[period_key].map(lambda x: f"{x:+.1f}%")
-                ranked["Expense"] = ranked["expense_ratio"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.2f}%")
+                ranked["Expense"] = ranked["expense_ratio"].map(lambda x: "Fund data unavailable" if pd.isna(x) else f"{x:.2f}%")
                 st.dataframe(ranked[["Rank","ticker","name","category","Return","Expense"]], use_container_width=True, hide_index=True)
                 st.caption("YTD and 1Y are total returns. 3Y, 5Y and 10Y are annualized CAGR.")
 
@@ -2107,9 +2110,9 @@ with main_etfs:
             ranked = all_df.dropna(subset=["all_around"]).sort_values("all_around", ascending=False).head(10).copy()
             ranked.insert(0, "Rank", range(1, len(ranked)+1))
             ranked["ETF Score"] = ranked["all_around"].map(lambda x: f"{x:.1f}")
-            ranked["5Y CAGR"] = ranked["5Y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
-            ranked["10Y CAGR"] = ranked["10Y"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.1f}%")
-            ranked["Expense"] = ranked["expense_ratio"].map(lambda x: "N/A" if pd.isna(x) else f"{x:.2f}%")
+            ranked["5Y CAGR"] = ranked["5Y"].map(lambda x: "Not enough history" if pd.isna(x) else f"{x:.1f}%")
+            ranked["10Y CAGR"] = ranked["10Y"].map(lambda x: "Not enough history" if pd.isna(x) else f"{x:.1f}%")
+            ranked["Expense"] = ranked["expense_ratio"].map(lambda x: "Fund data unavailable" if pd.isna(x) else f"{x:.2f}%")
             st.dataframe(ranked[["Rank","ticker","name","category","ETF Score","5Y CAGR","10Y CAGR","Expense"]], use_container_width=True, hide_index=True)
 
 
@@ -2298,7 +2301,7 @@ with main_dca:
             allocation_rows=[]
             for r in active_rows:
                 weight = r["Daily Dollars"] / total_daily * 100
-                hist_text = "N/A" if r["Historical CAGR"] is None else f"{r['Historical CAGR']:.1f}%"
+                hist_text = "Not enough history" if r["Historical CAGR"] is None else f"{r['Historical CAGR']:.1f}%"
                 allocation_rows.append({
                     "Ticker": r["Ticker"],
                     "Per Day": f"${r['Daily Dollars']:.2f}",

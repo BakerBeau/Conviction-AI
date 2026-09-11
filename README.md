@@ -1,8 +1,8 @@
-# Conviction AI v0.7.7
+# Conviction AI v0.7.8
 
 Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 
-## v0.7.7 beginner-discovery polish
+## v0.7.8 beginner-discovery polish
 
 - **Quality Gem** and **Turnaround Gem** now use visually distinct badges and clearer explanatory copy.
 - **Why Emerging?** now selects the strongest two signal-specific reasons (estimate revisions, relative-strength breakout, revenue/EPS strength, chart health, QoQ score change, or supportive valuation) instead of repeating the same generic phrase.
@@ -10,7 +10,7 @@ Beginner-friendly stock, ETF, and DCA research app built with Streamlit.
 - Added subtle green/amber/red/gray table cues for positive, mixed, negative, and unavailable trend labels.
 - Hidden Gem cards also show a compact status line for estimate revisions and value-vs-growth condition.
 
-## What is new in v0.7.7
+## What is new in v0.7.8
 
 - Rebuilt **Hidden Gems** to reduce sector bias and stop financial/asset-management names from dominating discovery.
 - Hidden Gem quality is now partly **sector-relative**, so a company is compared with other companies in its own sector rather than only against universal thresholds.
@@ -97,3 +97,10 @@ Daily DCA inputs are treated as trading-day contributions using 252 trading days
 - Hidden Gems now require a 65+ Hidden Gem Score and reject materially falling EPS estimate revisions (< -5%).
 - Hidden Gems are labeled **Quality Gem** or **Turnaround Gem** so positive-growth compounders are not mixed with improving-but-still-declining EPS stories.
 - Value vs Growth now explains when it is not applicable because forward EPS is declining.
+
+
+## v0.7.8 polish
+- Larger, more obvious Quality Gem and Turnaround Gem badges.
+- Emerging Leaders uses compact, signal-specific Why Emerging tags.
+- Exceptional labels are reserved for more extreme growth/momentum readings.
+- Generic N/A labels were replaced with plain-English explanations throughout the app.
